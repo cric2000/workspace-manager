@@ -1,10 +1,39 @@
-.task
-.tools/
+# Local dependencies and tooling
+/.tools/
+/.task/
+node_modules/
+
+# Generated bindings and build output
+/frontend/bindings/
+/frontend/dist/
+/bin/
+/build/linux/appimage/build/
+*.deb
+*.AppImage
+
+# Test output and caches
 coverage/
+coverage.out
+*.test
+*.prof
 *.tsbuildinfo
-bin
-frontend/dist
-frontend/node_modules
-build/linux/appimage/build
-frontend/coverage/
 __pycache__/
+*.py[cod]
+
+# Local environment and runtime files
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.log
+*.tmp
+
+# Editor and OS files
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
