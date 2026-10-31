@@ -1,0 +1,10 @@
+.task
+.tools/
+coverage/
+*.tsbuildinfo
+bin
+frontend/dist
+frontend/node_modules
+build/linux/appimage/build
+frontend/coverage/
+__pycache__/

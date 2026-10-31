@@ -1,0 +1,16 @@
+version: '3'
+
+includes:
+  common: ../Taskfile.yml
+
+tasks:
+  build:
+    deps:
+      - task: common:build:frontend
+    cmds:
+      - go build {{if eq .DEV "true"}}-gcflags=all=-l{{else}}-tags production -trimpath -ldflags="-w -s"{{end}} -buildvcs=false -o "{{.BIN_DIR}}/{{.APP_NAME}}" .
+    env:
+      CGO_ENABLED: '1'
+  run:
+    cmds:
+      - './{{.BIN_DIR}}/{{.APP_NAME}}'

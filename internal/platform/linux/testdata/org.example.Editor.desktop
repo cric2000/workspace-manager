@@ -1,0 +1,15 @@
+# Fixture: launch tokens are metadata, never shell input.
+[Desktop Entry]
+Type=Application
+Name=Example Editor
+Name[sr_RS@latin]=Editor region modifier
+Name[sr_RS]=Editor region
+Name[sr@latin]=Editor modifier
+Name[sr]=Editor language
+GenericName=Text Editor
+Comment=Edit files\nWith a second line
+Icon=accessories-text-editor
+Exec=/bin/true "two words" %U %i %c %k %%
+Terminal=true
+Categories=Utility;TextEditor;
+X-Example-Unrecognized=Preserve this key

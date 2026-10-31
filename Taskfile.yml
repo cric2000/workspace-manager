@@ -1,0 +1,35 @@
+version: '3'
+
+vars:
+  APP_NAME: workspace-manager
+  BIN_DIR: bin
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+
+tasks:
+  build:
+    summary: Build the Linux desktop application
+    preconditions:
+      - sh: test "{{OS}}" = linux
+        msg: V1 builds support Linux only.
+    cmds:
+      - task: linux:build
+  run:
+    summary: Run the built desktop application
+    cmds:
+      - task: linux:run
+  dev:
+    summary: Start Wails with frontend hot reload
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+  test:
+    summary: Run Go and frontend checks after building frontend assets
+    deps:
+      - task: common:build:frontend
+    cmds:
+      - go test -race ./...
+      - go vet ./...
+      - npm --prefix frontend test

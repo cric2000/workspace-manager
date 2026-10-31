@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "kind": "settings",
+  "data": {
+    "startupMode": "fixed",
+    "autostart": false,
+    "initialDelaySeconds": 0,
+    "appearance": "system"
+  }
+}
