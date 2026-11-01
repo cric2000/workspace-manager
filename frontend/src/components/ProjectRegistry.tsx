@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from './Modal'
 import { CommandRuntimeFields, CommandRuntimeReview, ProjectPreferenceFields, ProjectPreferenceReview } from './ProjectSettings'
+import { ProjectRemoval } from './ProjectRemoval'
+import { ProjectRescan } from './ProjectRescan'
+import { projectDraft } from '../lib/projectDraft'
 import { commitRegistration, listProjects, reviewRegistration, type Candidate, type CommandDraft, type ProjectView, type RegistrationDraft, type RegistrationReview, type RegistryResult, type RegistryState, type Report } from '../services/projects'
 
 export function ProjectRegistry({ report, candidate }: { report: Report | null; candidate: Candidate | undefined | null }) {
@@ -9,6 +12,8 @@ export function ProjectRegistry({ report, candidate }: { report: Report | null; 
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
   const [draft, setDraft] = useState<RegistrationDraft | null>(null)
+  const [comparison, setComparison] = useState<ProjectView | null>(null)
+  const [removal, setRemoval] = useState<ProjectView | null>(null)
   const alive = useRef(true)
   const request = useRef(0)
   const reload = async () => {
@@ -23,20 +28,22 @@ export function ProjectRegistry({ report, candidate }: { report: Report | null; 
     finally { if (alive.current && current === request.current) setLoading(false) }
   }
   useEffect(() => { alive.current = true; void reload(); return () => { alive.current = false; request.current++ } }, [])
-  const edit = (view: ProjectView) => setDraft({ id: view.project.id, revision: view.revision, name: view.project.name, path: view.project.path, preferences: view.project.preferences ? { previewUrl: view.project.preferences.previewUrl ?? '', editor: structuredClone(view.project.preferences.editor) } : undefined, commands: (view.project.commands ?? []).map(command => ({ id: command.id, configuration: { ...structuredClone(command.configuration), arguments: [...(command.configuration.arguments ?? [])] } })) })
+  const edit = (view: ProjectView) => setDraft(projectDraft(view))
   const saved = (result: RegistryResult) => {
     request.current++ // A pending list must not replace the saved result.
     setLoading(false); setDraft(null); setState(result.state); setError(result.message)
     setNotice('Project configuration saved. No command was started.')
   }
   return <section className="project-library" aria-label="Registered projects">
-    <div className="project-library-heading"><div><h2>Registered projects</h2><p className="muted text-xs">Saved startup configurations. Commands are not run from this screen.</p></div><button className="secondary-button" disabled={loading || !!draft} onClick={() => void reload()}>Reload registered projects</button></div>
-    {report && <div className="panel project-import-action"><p>{candidate ? `Configure “${candidate.label}” for this project, or edit its commands before review.` : 'Register this directory without a startup command, or add a custom command before review.'}</p><button className="primary-button" disabled={!state || loading} onClick={() => setDraft({ id: '', revision: '', name: report.path.split('/').pop() || '', path: report.path, commands: candidate ? [{ id: '', configuration: { name: candidate.label, executable: candidate.program, arguments: [...(candidate.arguments ?? [])], workingDirectory: candidate.workingDirectory } }] : [] })}>Configure project</button></div>}
+    <div className="project-library-heading"><div><h2>Registered projects</h2><p className="muted text-xs">Saved startup configurations. Commands are not run from this screen.</p></div><button className="secondary-button" disabled={loading || !!draft || !!comparison || !!removal} onClick={() => void reload()}>Reload registered projects</button></div>
+    {report && <div className="panel project-import-action"><p>{candidate ? `Configure “${candidate.label}” for this project, or edit its commands before review.` : 'Register this directory without a startup command, or add a custom command before review.'}</p><button className="primary-button" disabled={!state || loading || !!removal || !!comparison || !!draft} onClick={() => setDraft({ id: '', revision: '', name: report.path.split('/').pop() || '', path: report.path, commands: candidate ? [{ id: '', configuration: { name: candidate.label, executable: candidate.program, arguments: [...(candidate.arguments ?? [])], workingDirectory: candidate.workingDirectory } }] : [] })}>Configure project</button></div>}
     {notice && <p className="draft-note" aria-live="polite">{notice}</p>}
     {loading && <p className="draft-note">Loading registered projects…</p>}
     {error && <p className="error-panel" role="alert">{error}</p>}
     {state && !state.projects?.length && <p className="picker-empty">No registered projects. Inspect a directory to configure it.</p>}
-    <div className="project-stack-grid">{state?.projects?.map(view => <article className="panel" key={view.project.id} aria-label={`Registered project ${view.project.name}`}><h3>{view.project.name}</h3><p className="project-location">{view.project.path}</p><p className="muted text-xs">{view.project.commands?.length || 0} startup commands</p><ul className="project-command-summary">{view.project.commands?.map(command => <li key={command.id}>{command.configuration.name} · {command.approval ? 'Configuration approved' : 'Review required'}</li>)}</ul><button className="secondary-button" disabled={loading || !!draft} onClick={() => edit(view)}>Edit project {view.project.name}</button></article>)}</div>
+    <div className="project-stack-grid">{state?.projects?.map(view => <article className="panel" key={view.project.id} aria-label={`Registered project ${view.project.name}`}><h3>{view.project.name}</h3><p className="project-location">{view.project.path}</p><p className="muted text-xs">{view.project.commands?.length || 0} startup commands</p><ul className="project-command-summary">{view.project.commands?.map(command => <li key={command.id}>{command.configuration.name} · {command.approval ? 'Configuration approved' : 'Review required'}</li>)}</ul><div className="project-command-actions"><button className="secondary-button" disabled={loading || !!draft || !!comparison || !!removal} onClick={() => edit(view)}>Edit project {view.project.name}</button><button className="secondary-button project-rescan-button" disabled={loading || !!draft || !!comparison || !!removal} onClick={() => setComparison(view)}>Rescan project {view.project.name}</button><button className="secondary-button delete-button" disabled={loading || !!draft || !!comparison || !!removal} onClick={() => setRemoval(view)}>Remove project {view.project.name}</button></div></article>)}</div>
+    {removal && <ProjectRemoval view={removal} onClose={() => setRemoval(null)} onRemoved={result => { request.current++; setRemoval(null); setState(result.state); setError(result.message); setNotice('Project registration removed. Project files are unchanged.') }} />}
+    {comparison && <ProjectRescan view={comparison} onClose={() => setComparison(null)} onUse={value => { setComparison(null); setDraft(value) }} />}
     {draft && <RegistrationEditor initial={draft} onClose={() => setDraft(null)} onSaved={saved} />}
   </section>
 }

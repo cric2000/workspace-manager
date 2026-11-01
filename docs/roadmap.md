@@ -9,7 +9,7 @@ acceptance checks listed below; this is not a complete V1 release.
 | 2 | Domain models, JSON repositories, migrations and recovery | Implemented |
 | 3 | Workspace CRUD and default selection | Implemented |
 | 4 | Application discovery, configuration and reviewed launch | Implemented |
-| 5 | Existing-project import, detection and reviewed configuration | In progress |
+| 5 | Existing-project import, detection and reviewed configuration | Implemented; manual gates pending |
 | 6 | Creation wizard: Go, Node/TypeScript, Next.js, Python and FastAPI | Planned |
 | 7 | Independent controller, process ownership, logs, readiness and Run & Preview | Planned |
 | 8 | Ordered workspace execution, editors/URLs, delays and safe switching | Planned |
@@ -19,16 +19,13 @@ acceptance checks listed below; this is not a complete V1 release.
 | 12 | Reliability, accessibility, errors and UI polish | Planned |
 | 13 | Linux binary/.deb, launcher, icon, license and release documentation | Planned |
 
-## Remaining Phase 5 work
+## Current milestone
 
-- Compare rescans with saved configuration; show changes before applying them and
-  never overwrite approved commands automatically.
-- Associate projects with workspaces, implement safe metadata removal, and complete
-  import/approval workflow checks.
-
-Inspection, canonical registration, startup command review, environment-file
-references, readiness, preview/editor actions, graceful stop configuration and
-launch delays are implemented. Runtime execution belongs to Phase 7.
+Project import/configuration, revision-checked rescans, ordered workspace association
+and guarded registration removal are implemented. Automated import/review/reopen
+checks cover conflicts, concurrent association/removal and source preservation.
+Manual chooser/accessibility/X11 checks remain pending. Managed execution belongs
+to Phase 7. The next implementation unit is Phase 6 project creation.
 
 ## Validation gates
 

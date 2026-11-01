@@ -1,6 +1,7 @@
 import type { Draft, Result, State, Target, View } from '../../bindings/workspace-manager/internal/workspaces/models'
 
 export type { Draft, Result, State, Target, View }
+export type { ProjectSelection } from '../../bindings/workspace-manager/internal/workspaces/models'
 export type { WorkspaceApplication } from '../../bindings/workspace-manager/internal/domain/models'
 
 // Native transport stays in generated bindings; lazy imports expose failures to UI.
@@ -12,3 +13,4 @@ export const duplicateWorkspace = async (target: Target, draft: Draft): Promise<
 export const deleteWorkspace = async (target: Target): Promise<Result> => (await bridge()).Delete(target)
 export const setDefaultWorkspace = async (target: Target, settingsRevision: string): Promise<Result> => (await bridge()).SetDefault(target, settingsRevision)
 export const setWorkspaceApplications = async (target: Target, choices: import('../../bindings/workspace-manager/internal/domain/models').WorkspaceApplication[]): Promise<Result> => (await bridge()).SetApplications(target, choices)
+export const setWorkspaceProjects = async (target: Target, choices: import('../../bindings/workspace-manager/internal/workspaces/models').ProjectSelection[]): Promise<Result> => (await bridge()).SetProjects(target, choices)

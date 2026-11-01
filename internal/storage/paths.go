@@ -64,6 +64,12 @@ func (paths Paths) WorkspacesDir() string {
 	return filepath.Join(paths.ConfigDir, "profiles")
 }
 
+// Workspace edits, project association and guarded project removal all take
+// this lock before repository locks (and before the project-operation lock).
+func (paths Paths) WorkspaceOperationsDir() string {
+	return filepath.Join(paths.ConfigDir, "workspace-operations")
+}
+
 func (paths Paths) ProjectsDir() string {
 	return filepath.Join(paths.ConfigDir, "projects")
 }

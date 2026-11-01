@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppWindow, Copy, Folder, Layers3, Pencil, Plus, RefreshCw, Search, Star, Trash2 } from 'lucide-react'
 import { Modal } from '../components/Modal'
+import { WorkspaceProjects } from '../components/WorkspaceProjects'
 import { WorkspaceApplications } from '../components/WorkspaceApplications'
-import { createWorkspace, deleteWorkspace, duplicateWorkspace, editWorkspace, listWorkspaces, setDefaultWorkspace, setWorkspaceApplications, type Draft, type Result, type State, type View } from '../services/workspaces'
+import { createWorkspace, deleteWorkspace, duplicateWorkspace, editWorkspace, listWorkspaces, setDefaultWorkspace, setWorkspaceApplications, setWorkspaceProjects, type Draft, type Result, type State, type View } from '../services/workspaces'
 
 type ProfileEditor = { kind: 'create' } | { kind: 'edit' | 'duplicate' | 'delete'; workspace: View }
-type Editor = ProfileEditor | { kind: 'applications'; workspace: View }
+type Editor = ProfileEditor | { kind: 'applications'; workspace: View } | { kind: 'projects'; workspace: View }
 type Fault = { message: string; reconcile: boolean }
 const target = (workspace: View) => ({ id: workspace.id, revision: workspace.revision })
 
@@ -47,7 +48,7 @@ export function Workspaces() {
       const result = await operation()
       if (!mounted.current) return
       if (result.code || !result.state) {
-        const reconcile = result.committed || !['validation', 'default_workspace', 'default_required', 'application_unavailable'].includes(result.code)
+        const reconcile = result.committed || !['validation', 'default_workspace', 'default_required', 'application_unavailable', 'project_unavailable'].includes(result.code)
         setFault({ message: result.message || 'Could not load workspaces. Reload before continuing.', reconcile })
         if (reconcile) { setNeedsReload(true); if (mutation) setBlockedDraft(true) }
         if (result.committed) setEditor(null)
@@ -118,6 +119,7 @@ export function Workspaces() {
           <div className="card-actions">
             <button className="secondary-button" aria-label={`Edit ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'edit', workspace })}><Pencil size={13} aria-hidden="true" />Edit</button>
             <button className="secondary-button" aria-label={`Configure applications for ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'applications', workspace })}><AppWindow size={13} aria-hidden="true" />Apps ({workspace.applications?.length ?? 0})</button>
+            <button className="secondary-button" aria-label={`Configure projects for ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'projects', workspace })}><Folder size={13} aria-hidden="true" />Projects ({workspace.projectCount})</button>
             <button className="icon-button" aria-label={`Duplicate ${workspace.name}`} title="Duplicate workspace" disabled={disabled} onClick={() => openEditor({ kind: 'duplicate', workspace })}><Copy size={15} aria-hidden="true" /></button>
             {workspace.id !== state.defaultWorkspaceId && <button className="icon-button" aria-label={`Set ${workspace.name} as default`} title="Set as default" disabled={disabled} onClick={() => { void run(() => setDefaultWorkspace(target(workspace), state.settingsRevision), 'Default workspace updated.') }}><Star size={15} aria-hidden="true" /></button>}
             <button className="icon-button delete-button" aria-label={`Delete ${workspace.name}`} title="Delete workspace" disabled={disabled} onClick={() => openEditor({ kind: 'delete', workspace })}><Trash2 size={15} aria-hidden="true" /></button>
@@ -126,8 +128,8 @@ export function Workspaces() {
       </div> : <div className="empty-workspaces panel"><span className="workspace-icon"><Layers3 size={27} aria-hidden="true" /></span><h2>{query ? 'No matching workspaces' : 'Start with a space for your work'}</h2><p className="muted">{query ? 'Try another name or description.' : 'Create a profile for coding, learning or your next idea.'}</p>{!query && <button className="secondary-button" disabled={disabled} onClick={() => openEditor({ kind: 'create' })}><Plus size={15} aria-hidden="true" />Create your first workspace</button>}</div>}
     </>}
     {!state && !pending && <button className="secondary-button" onClick={reload}>Retry loading</button>}
-    <aside className="scope-note"><h2>Build your profile, one step at a time.</h2><p>Save workspace details, installed and custom applications, launch order and duplicate preferences here. Review individual tools from Applications. Ordered workspace execution and project import remain planned.</p></aside>
-    {editor?.kind === 'applications' ? <WorkspaceApplications workspace={editor.workspace} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSave={choices => { if (!blockedDraft && !needsReload) void run(() => setWorkspaceApplications(target(editor.workspace), choices), 'Workspace applications saved.') }} /> : editor && <WorkspaceEditor key={editor.kind + ('workspace' in editor ? editor.workspace.id : '')} editor={editor} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSubmit={submit} />}
+    <aside className="scope-note"><h2>Build your profile, one step at a time.</h2><p>Save workspace details, installed and custom applications, launch order and duplicate preferences here. Review individual tools from Applications. Associate registered projects in workspace order. Workspace execution remains planned.</p></aside>
+    {editor?.kind === 'applications' ? <WorkspaceApplications workspace={editor.workspace} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSave={choices => { if (!blockedDraft && !needsReload) void run(() => setWorkspaceApplications(target(editor.workspace), choices), 'Workspace applications saved.') }} /> : editor?.kind === 'projects' ? <WorkspaceProjects workspace={editor.workspace} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSave={choices => { if (!blockedDraft && !needsReload) void run(() => setWorkspaceProjects(target(editor.workspace), choices), 'Workspace projects saved.') }} /> : editor && <WorkspaceEditor key={editor.kind + ('workspace' in editor ? editor.workspace.id : '')} editor={editor} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSubmit={submit} />}
   </>
 }
 

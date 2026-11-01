@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -33,6 +32,7 @@ type View struct {
 	Name         string                        `json:"name"`
 	Description  string                        `json:"description"`
 	ProjectCount int                           `json:"projectCount"`
+	ProjectIDs   []domain.ID                   `json:"projectIds,omitempty"`
 	Applications []domain.WorkspaceApplication `json:"applications"`
 	CreatedAt    time.Time                     `json:"createdAt"`
 	UpdatedAt    time.Time                     `json:"updatedAt"`
@@ -72,13 +72,14 @@ type ApplicationCatalog interface {
 // available with a retry action. The mutex protects initialization and shutdown;
 // the directory lock also coordinates separate GUI processes.
 type Service struct {
-	mu         sync.Mutex
-	paths      func() (storage.Paths, error)
-	profiles   *storage.Repository[domain.Workspace]
-	settings   *storage.SettingsRepository
-	operations *os.Root
-	closed     bool
-	catalog    ApplicationCatalog
+	mu            sync.Mutex
+	paths         func() (storage.Paths, error)
+	resolvedPaths storage.Paths
+	profiles      *storage.Repository[domain.Workspace]
+	settings      *storage.SettingsRepository
+	operations    *os.Root
+	closed        bool
+	catalog       ApplicationCatalog
 }
 
 func NewService(catalog ApplicationCatalog) *Service {
@@ -96,7 +97,7 @@ func (service *Service) open() error {
 	if err != nil {
 		return err
 	}
-	operations, err := storage.OpenPrivateDirectory(filepath.Join(paths.ConfigDir, "workspace-operations"))
+	operations, err := storage.OpenPrivateDirectory(paths.WorkspaceOperationsDir())
 	if err != nil {
 		return err
 	}
@@ -123,6 +124,7 @@ func (service *Service) open() error {
 		return err
 	}
 	service.profiles, service.settings, service.operations = profiles, settings, operations
+	service.resolvedPaths = paths
 	return nil
 }
 
@@ -160,7 +162,7 @@ func (service *Service) read(ctx context.Context) (*State, error) {
 	state.DefaultMissing = state.DefaultWorkspaceID != ""
 	for _, profile := range profiles {
 		value := profile.Value
-		state.Workspaces = append(state.Workspaces, View{ID: value.ID, Name: value.Name, Description: value.Description, ProjectCount: len(value.ProjectIDs), Applications: domain.CloneApplications(value.Applications), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, Revision: profile.Revision})
+		state.Workspaces = append(state.Workspaces, View{ID: value.ID, Name: value.Name, Description: value.Description, ProjectCount: len(value.ProjectIDs), ProjectIDs: slices.Clone(value.ProjectIDs), Applications: domain.CloneApplications(value.Applications), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, Revision: profile.Revision})
 		if value.ID == state.DefaultWorkspaceID {
 			state.DefaultMissing = false
 		}
@@ -415,6 +417,14 @@ func failure(err error) Result {
 		return Result{Code: "durability_uncertain", Committed: true, Message: "The change took effect, but storage durability could not be confirmed. Reload workspaces before making another change."}
 	}
 	switch {
+	case errors.Is(err, errProjectSelection):
+		result.Code, result.Message = "validation", "Choose up to 64 distinct project registrations in the desired order. Reload the project list if a selection is invalid."
+	case errors.Is(err, errProjectUnavailable):
+		result.Code, result.Message = "project_unavailable", "An added project is no longer registered. Refresh the project list and remove or replace that selection."
+	case errors.Is(err, errProjectStorage):
+		result.Code, result.Message = "project_storage", "Project registrations could not be read. Existing files were preserved. Check project storage and reload before saving these selections."
+	case errors.Is(err, errProjectChanged):
+		result.Code, result.Message = "conflict", "A selected project changed after the list loaded. Keep your draft, reload workspaces, then reopen the project picker before saving again."
 	case errors.Is(err, errApplication):
 		result.Code, result.Message = "application_unavailable", "An added application is no longer available. Refresh the application list and choose an installed application, or remove it from this draft."
 	case errors.Is(err, errApplicationSettings):

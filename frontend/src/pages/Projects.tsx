@@ -67,6 +67,6 @@ export function Projects() {
       {!!report.tools?.length && <section aria-label="Required tools" className="panel"><h2>Required tools</h2><p className="muted text-xs">PATH presence only. Versions, plugins, environments and dependencies were not checked.</p><ul className="project-tools">{report.tools.map(tool => <li key={tool.name}><code>{tool.name}</code><span>{tool.available ? 'Found on PATH' : 'Not found on PATH'}</span></li>)}</ul></section>}
     </section>}
     <ProjectRegistry report={report} candidate={candidate} />
-    <aside className="scope-note"><h2>Inspect first. Review before saving.</h2><p>Inspection leaves saved configurations alone. Registration saves only the configurations you review. Readiness checks, editor and stop actions are saved configuration; execution will be added later. Saving runs nothing. Workspace association and rescan comparison follow in later units.</p></aside>
+    <aside className="scope-note"><h2>Inspect first. Review before saving.</h2><p>Inspection leaves saved configurations alone. Rescan a registered project to compare suggestions and explicitly choose a change for review. Readiness checks, editor and stop actions are saved configuration; execution will be added later. Saving runs nothing. Workspace association follows in a later unit.</p></aside>
   </>
 }

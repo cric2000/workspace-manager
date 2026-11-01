@@ -148,6 +148,7 @@ func (service *Service) openRegistry() error {
 		return err
 	}
 	service.registry, service.operations = registry, operations
+	service.resolvedPaths = paths
 	return nil
 }
 

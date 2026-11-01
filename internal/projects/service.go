@@ -22,17 +22,18 @@ type Result struct {
 // Service separates inspection from explicit reviewed registration. It has no
 // execution dependency: none of its methods can start a project command.
 type Service struct {
-	inspector  detection.Inspector
-	slots      chan struct{}
-	mu         sync.Mutex
-	paths      func() (storage.Paths, error)
-	registry   *storage.Repository[domain.Project]
-	operations *os.Root
-	reviews    map[string]*pendingReview
-	now        func() time.Time
-	picker     func() (string, error)
-	pickerSlot chan struct{}
-	closed     bool
+	inspector     detection.Inspector
+	slots         chan struct{}
+	mu            sync.Mutex
+	paths         func() (storage.Paths, error)
+	resolvedPaths storage.Paths
+	registry      *storage.Repository[domain.Project]
+	operations    *os.Root
+	reviews       map[string]*pendingReview
+	now           func() time.Time
+	picker        func() (string, error)
+	pickerSlot    chan struct{}
+	closed        bool
 }
 
 type Option func(*Service)

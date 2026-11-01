@@ -11,10 +11,11 @@ login startup and Save & Shutdown are still being built.
 
 ## Features
 
-- Create, edit, duplicate and delete workspaces; choose a default.
+- Create, edit, duplicate and delete workspaces; choose a default and order projects.
 - Discover desktop applications and review desktop/custom executable launches.
-- Inspect existing projects and save reviewed commands, environment-file references,
+- Inspect projects, compare rescans and save reviewed commands, environment-file references,
   readiness, preview, editor, stop and delay settings. Saving runs no project code.
+- Remove unused project registrations while preserving source files and history.
 - Store configuration locally using XDG paths, versioned JSON and atomic writes.
 
 ## Requirements

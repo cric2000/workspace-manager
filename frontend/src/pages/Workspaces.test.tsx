@@ -5,9 +5,11 @@ import App from '../App'
 import { Workspaces } from './Workspaces'
 import * as api from '../services/workspaces'
 import { getApplicationIcon, listApplications, type DesktopEntry } from '../services/applications'
-import { DuplicatePolicy } from '../../bindings/workspace-manager/internal/domain/models'
+import { listProjects } from '../services/projects'
+import { DuplicatePolicy, ProjectSource } from '../../bindings/workspace-manager/internal/domain/models'
 
-vi.mock('../services/workspaces', () => ({ listWorkspaces: vi.fn(), createWorkspace: vi.fn(), editWorkspace: vi.fn(), duplicateWorkspace: vi.fn(), deleteWorkspace: vi.fn(), setDefaultWorkspace: vi.fn(), setWorkspaceApplications: vi.fn() }))
+vi.mock('../services/workspaces', () => ({ listWorkspaces: vi.fn(), createWorkspace: vi.fn(), editWorkspace: vi.fn(), duplicateWorkspace: vi.fn(), deleteWorkspace: vi.fn(), setDefaultWorkspace: vi.fn(), setWorkspaceApplications: vi.fn(), setWorkspaceProjects: vi.fn() }))
+vi.mock('../services/projects', () => ({ listProjects: vi.fn() }))
 vi.mock('../services/desktop', () => ({ getInfo: vi.fn().mockResolvedValue({ os: 'linux', architecture: 'amd64', version: 'test', goVersion: 'test', sessionType: 'wayland' }) }))
 vi.mock('../services/applications', () => ({ listApplications: vi.fn(), getApplicationIcon: vi.fn() }))
 
@@ -25,6 +27,21 @@ describe('workspace profiles', () => {
     vi.mocked(api.listWorkspaces).mockResolvedValue(result(state()))
     vi.mocked(listApplications).mockReset().mockResolvedValue({ entries: [editorApp, browserApp], code: '', message: '' })
     vi.mocked(getApplicationIcon).mockReset().mockResolvedValue('')
+  })
+
+  it('saves workspace project choices with both workspace and project revisions', async () => {
+    const user = userEvent.setup()
+    const project = { id: 'f'.repeat(32), name: 'Server', path: '/offline/server', source: ProjectSource.SourceImported, createdAt: coding.createdAt, updatedAt: coding.updatedAt }
+    vi.mocked(listProjects).mockResolvedValue({ state: { projects: [{ project, revision: '1'.repeat(64) }] }, code: '', message: '', committed: false })
+    vi.mocked(api.setWorkspaceProjects).mockResolvedValue(result(state([{ ...coding, projectCount: 1, projectIds: [project.id] }]), true))
+    render(<Workspaces />)
+    await user.click(await screen.findByRole('button', { name: 'Configure projects for Coding' }))
+    await user.click(await screen.findByRole('button', { name: 'Add Server to workspace' }))
+    expect(api.setWorkspaceProjects).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Save workspace projects' }))
+    expect(api.setWorkspaceProjects).toHaveBeenCalledExactlyOnceWith({ id: coding.id, revision: coding.revision }, [{ id: project.id, revision: '1'.repeat(64) }])
+    expect(await screen.findByText('Workspace projects saved.')).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'Coding' })).toHaveTextContent('1 project reference')
   })
 
   it('creates from an empty state and waits for the backend before allowing another submission', async () => {

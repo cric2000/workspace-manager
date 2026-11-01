@@ -3,9 +3,9 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectRegistry } from './ProjectRegistry'
 import { ProjectSource } from '../../bindings/workspace-manager/internal/domain/models'
-import { commitRegistration, listProjects, reviewRegistration, type ProjectView, type RegistrationReview, type RegistryResult, type Report } from '../services/projects'
+import { commitRegistration, listProjects, reviewRegistration, removeProject, type ProjectView, type RegistrationReview, type RegistryResult, type Report } from '../services/projects'
 
-vi.mock('../services/projects', () => ({ commitRegistration: vi.fn(), listProjects: vi.fn(), reviewRegistration: vi.fn() }))
+vi.mock('../services/projects', () => ({ commitRegistration: vi.fn(), listProjects: vi.fn(), reviewRegistration: vi.fn(), removeProject: vi.fn() }))
 const timestamp = '2026-10-31T10:00:00Z'
 const report: Report = { path: '/code/api', partial: false, stacks: [], candidates: [{ label: 'Go API', program: 'go', arguments: ['run', '.'], workingDirectory: '/code/api', reason: 'main', confidence: 'source' }], findings: [], tools: [] }
 const view: ProjectView = { revision: 'a'.repeat(64), project: { id: '1'.repeat(32), name: 'API', path: report.path, source: ProjectSource.SourceImported, createdAt: timestamp, updatedAt: timestamp, commands: [{ id: '2'.repeat(32), configuration: { name: 'Go API', executable: '/usr/bin/go', arguments: ['run', '.', ''], workingDirectory: report.path }, approval: { fingerprint: 'b'.repeat(64), approvedAt: timestamp } }] } }
@@ -17,6 +17,21 @@ describe('reviewed project registration', () => {
     vi.mocked(listProjects).mockReset().mockResolvedValue(ready())
     vi.mocked(reviewRegistration).mockReset().mockResolvedValue({ review, code: '', message: '' })
     vi.mocked(commitRegistration).mockReset().mockResolvedValue({ ...ready([view]), committed: true })
+  })
+
+  it('requires explicit removal confirmation and reconciles the registry after success', async () => {
+    const user = userEvent.setup()
+    vi.mocked(listProjects).mockResolvedValueOnce(ready([view]))
+    vi.mocked(removeProject).mockResolvedValue({ ...ready(), committed: true })
+    render(<ProjectRegistry report={null} candidate={null} />)
+    await user.click(await screen.findByRole('button', { name: 'Remove project API' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(removeProject).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Remove project API' }))
+    await user.click(screen.getByRole('button', { name: 'Remove registration' }))
+    expect(removeProject).toHaveBeenCalledExactlyOnceWith({ id: view.project.id, revision: view.revision })
+    expect(await screen.findByText('Project registration removed. Project files are unchanged.')).toBeInTheDocument()
+    expect(screen.queryByRole('article')).not.toBeInTheDocument()
   })
 
   it('reviews a selected suggestion, preserves literal and empty argv, and saves only the review token', async () => {

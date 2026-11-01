@@ -522,9 +522,115 @@ def check_projects(temporary):
         app.narrow_viewport()
         app.assert_layout()
         app.close()
+    # Change a detected entry point after configuration was approved. Rescan and
+    # draft selection must leave exact saved bytes intact until explicit approval.
+    (project / 'cmd/api').rename(project / 'cmd/updated')
+    expected_files[Path('cmd/updated/main.go')] = expected_files.pop(Path('cmd/api/main.go'))
+    before_rescan = records[0].read_bytes()
+    previous = json.loads(before_rescan)['data']
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('.project-rescan-button')")
+        app.click('.project-rescan-button')
+        app.until("document.querySelector('select[name=\"rescan-candidate\"]')")
+        assert records[0].read_bytes() == before_rescan
+        assert app.js("return document.querySelector('dialog .dialog-actions .primary-button').disabled;")
+        app.js("const field = document.querySelector('select[name=\"rescan-candidate\"]'); field.value = [...field.options].find(option => option.textContent === 'Go: ./cmd/updated').value; field.dispatchEvent(new Event('change', {bubbles:true})); return true;")
+        app.until("document.querySelector('select[name=\"rescan-target\"]')")
+        app.js("const field = document.querySelector('select[name=\"rescan-target\"]'); field.value = " + json.dumps(previous['commands'][0]['id']) + "; field.dispatchEvent(new Event('change', {bubbles:true})); return true;")
+        app.until("document.querySelector('section[aria-label=\"Candidate change comparison\"]')")
+        assert app.js("return document.querySelector('dialog table').textContent.includes('literal ; $HOME %U') && document.querySelector('dialog table').textContent.includes('./cmd/updated');")
+        assert not app.js("return document.querySelector('dialog').textContent.includes('never-display-this-inspection-secret');")
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("document.querySelector('#registration-name')")
+        assert records[0].read_bytes() == before_rescan
+        assert app.js("return [...document.querySelectorAll('.project-command-editor > fieldset:first-of-type .argument-row input')].map(input => input.value);") == ['run', './cmd/updated']
+        assert app.js("return document.querySelector('.project-preferences input[type=url]').value;") == previous['preferences']['previewUrl']
+        app.click('dialog button[type="submit"]')
+        app.until("document.querySelector('[aria-label=\"Registration review\"]')")
+        assert records[0].read_bytes() == before_rescan
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog')")
+        updated = json.loads(records[0].read_text())['data']
+        assert updated['id'] == previous['id']
+        assert updated['commands'][0]['id'] == previous['commands'][0]['id']
+        assert updated['commands'][0]['configuration']['name'] == previous['commands'][0]['configuration']['name']
+        assert updated['commands'][0]['configuration']['arguments'] == ['run', './cmd/updated']
+        assert updated['commands'][0]['configuration']['runtime'] == previous['commands'][0]['configuration']['runtime']
+        assert updated['preferences']['previewUrl'] == previous['preferences']['previewUrl']
+        assert updated['preferences']['editor'] == previous['preferences']['editor']
+        assert updated['commands'][0]['approval']['fingerprint'] != previous['commands'][0]['approval']['fingerprint']
+        after_save = records[0].read_bytes()
+        app.click('.project-rescan-button')
+        app.until("document.querySelector('select[name=\"rescan-candidate\"]')")
+        assert app.js("return document.querySelector('ul[aria-label=\"Saved command matches\"]').textContent.includes('Equivalent invocation detected');")
+        app.js("const field = document.querySelector('select[name=\"rescan-candidate\"]'); field.value = [...field.options].find(option => option.textContent === 'Go: ./cmd/updated').value; field.dispatchEvent(new Event('change', {bubbles:true})); return true;")
+        app.until("document.querySelector('select[name=\"rescan-target\"]')")
+        app.js("const field = document.querySelector('select[name=\"rescan-target\"]'); field.value = " + json.dumps(updated['commands'][0]['id']) + "; field.dispatchEvent(new Event('change', {bubbles:true})); return true;")
+        app.until("document.querySelector('section[aria-label=\"Candidate change comparison\"]')")
+        app.narrow_viewport()
+        app.assert_layout()
+        app.close()
+        assert records[0].read_bytes() == after_save
+    # Associate, duplicate and reopen shared references before guarded removal.
+    with Native(temporary) as app:
+        app.click('[data-new-workspace]')
+        app.until("document.querySelector('#workspace-name')")
+        app.fill('#workspace-name', 'Native Project Workspace')
+        app.submit()
+        app.click('button[aria-label="Configure projects for Native Project Workspace"]')
+        app.until("document.querySelector('button[aria-label=\"Add Native API to workspace\"]')")
+        app.click('button[aria-label="Add Native API to workspace"]')
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog')")
+        app.click('button[aria-label="Duplicate Native Project Workspace"]')
+        app.until("document.querySelector('#workspace-name')")
+        app.fill('#workspace-name', 'Native Project Copy')
+        app.submit()
+        app.close()
+    profiles = temporary / 'config/workspace-manager/profiles'
+    linked = [json.loads(path.read_text())['data'] for path in profiles.glob('*.json')
+              if json.loads(path.read_text())['data']['name'].startswith('Native Project ')]
+    assert len(linked) == 2 and all(item['projectIds'] == [updated['id']] for item in linked)
+    assert records[0].read_bytes() == after_save
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('article[aria-label=\"Registered project Native API\"]')")
+        app.click('.project-library article .delete-button')
+        app.until("document.querySelector('dialog .danger-button')")
+        app.click('dialog .danger-button')
+        app.until("document.querySelector('dialog [role=alert]')?.textContent.includes('Native Project Workspace')")
+        assert app.js("return document.querySelector('dialog [role=alert]').textContent.includes('Native Project Copy') && document.querySelector('dialog .danger-button').disabled;")
+        assert records[0].read_bytes() == after_save
+        app.click('dialog .dialog-actions .secondary-button')
+        app.click('nav button[data-page="workspaces"]')
+        for name in ['Native Project Workspace', 'Native Project Copy']:
+            selector = 'button[aria-label="Configure projects for ' + name + '"]'
+            app.until('document.querySelector(' + json.dumps(selector) + ')')
+            app.click(selector)
+            app.until("document.querySelector('button[aria-label=\"Remove Native API from workspace\"]') && !document.querySelector('dialog .dialog-actions .primary-button').disabled")
+            app.click('button[aria-label="Remove Native API from workspace"]')
+            app.click('dialog .dialog-actions .primary-button')
+            app.until("!document.querySelector('dialog')")
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('article[aria-label=\"Registered project Native API\"]')")
+        app.click('.project-library article .delete-button')
+        app.until("document.querySelector('dialog .danger-button')")
+        app.click('dialog .danger-button')
+        app.until("!document.querySelector('dialog') && !document.querySelector('article[aria-label=\"Registered project Native API\"]')")
+        assert not records[0].exists()
+        app.click('nav button[data-page="workspaces"]')
+        app.until("document.querySelector('button[aria-label=\"Configure projects for Native Project Workspace\"]')")
+        app.click('button[aria-label="Configure projects for Native Project Workspace"]')
+        app.until("document.querySelector('dialog .picker-empty')")
+        app.narrow_viewport()
+        app.assert_layout()
+        app.close()
+    assert not list(project_records.glob('*.json'))
+    assert after_save in [path.read_bytes() for path in (project_records / 'history' / updated['id']).glob('*.json')]
     assert not (project / 'must-not-run').exists()
     assert {path.relative_to(project): path.read_bytes() for path in project.rglob('*') if path.is_file()} == expected_files
-    print('PASS: native project inspection, rescan, reviewed registration, literal/empty argv, environment/readiness/delay/preview/editor/stop persistence, reopen and changed-executable rejection; no project execution, secret copy or source write.')
+    print('PASS: native project import/review/rescan, workspace association/duplication/reopen, guarded metadata removal and narrow picker layout; source and approval history preserved, no project execution or secret copy.')
     print("PASS: all persistent test writes stayed in temporary XDG directories; all GUI instances exited cleanly.")
 
 if __name__ == "__main__":

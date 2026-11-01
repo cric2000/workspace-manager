@@ -10,9 +10,9 @@ module and frontend runtime use version 3.0.0.
 | --- | --- |
 | `internal/domain` | Workspace, project, session and settings models; command approval |
 | `internal/storage` | XDG paths, strict JSON codecs, migrations, revisions and atomic writes |
-| `internal/workspaces` | Workspace editing, default selection and application configuration |
+| `internal/workspaces` | Workspace editing, default selection and ordered application/project references |
 | `internal/applications` | Discovery facade, reviewed launch and duplicate handling |
-| `internal/projects` | Read-only detection and reviewed project registration/configuration |
+| `internal/projects` | Read-only detection, rescan, reviewed configuration and guarded registration removal |
 | `internal/platform/linux` | GIO, icons, desktop/custom launches and D-Bus instance checks |
 | `frontend/src` | Pages, components and typed service wrappers |
 
@@ -31,6 +31,11 @@ Sessions hold independent project snapshots; branching deep-copies nested settin
 - Detection reads bounded metadata/source without invoking project tools or code.
 - Configuration review shows the resolved executable, literal argv and working
   directory. Approval binds the reviewed configuration; edits require review again.
+- Registered-project rescans verify the saved revision before and after inspection.
+  Comparisons cover executable/argv/working-directory fields. Explicit replacement
+  preserves command identity, name, order, runtime settings and project preferences;
+  adding/replacing a candidate opens an unapproved draft for the existing save flow.
+  Absent candidates never trigger removal. Scan results remain transient.
 - Environment references store project-relative paths, never file contents. Existing
   references are checked with rooted metadata-only operations; symlinks and special
   files are refused.
@@ -38,6 +43,11 @@ Sessions hold independent project snapshots; branching deep-copies nested settin
   does not probe endpoints, open editors or execute startup/stop actions.
 - Desktop/custom application launching is implemented. Unknown running-instance
   identity blocks skip-if-running; process names are never used as identity.
+- Project association checks workspace and project revisions. Existing missing references
+  are retained until explicitly removed. A shared workspace-operation lock coordinates
+  association, duplication and registration removal across GUI processes; removal
+  refuses referenced registrations or unreadable workspace storage, archives metadata,
+  and leaves source files and independent session snapshots intact.
 - Metadata deletion must preserve project directories. Raw secrets and arbitrary
   application memory must not enter configuration or session snapshots.
 
