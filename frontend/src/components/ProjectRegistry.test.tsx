@@ -3,9 +3,9 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectRegistry } from './ProjectRegistry'
 import { ProjectSource } from '../../bindings/workspace-manager/internal/domain/models'
-import { commitRegistration, listProjects, reviewRegistration, removeProject, type ProjectView, type RegistrationReview, type RegistryResult, type Report } from '../services/projects'
+import { commitRegistration, listProjects, listSetupLogs, reviewRegistration, removeProject, type ProjectView, type RegistrationReview, type RegistryResult, type Report } from '../services/projects'
 
-vi.mock('../services/projects', () => ({ commitRegistration: vi.fn(), listProjects: vi.fn(), reviewRegistration: vi.fn(), removeProject: vi.fn() }))
+vi.mock('../services/projects', () => ({ listSetupLogs: vi.fn(), commitRegistration: vi.fn(), listProjects: vi.fn(), reviewRegistration: vi.fn(), removeProject: vi.fn() }))
 const timestamp = '2026-10-31T10:00:00Z'
 const report: Report = { path: '/code/api', partial: false, stacks: [], candidates: [{ label: 'Go API', program: 'go', arguments: ['run', '.'], workingDirectory: '/code/api', reason: 'main', confidence: 'source' }], findings: [], tools: [] }
 const view: ProjectView = { revision: 'a'.repeat(64), project: { id: '1'.repeat(32), name: 'API', path: report.path, source: ProjectSource.SourceImported, createdAt: timestamp, updatedAt: timestamp, commands: [{ id: '2'.repeat(32), configuration: { name: 'Go API', executable: '/usr/bin/go', arguments: ['run', '.', ''], workingDirectory: report.path }, approval: { fingerprint: 'b'.repeat(64), approvedAt: timestamp } }] } }
@@ -230,4 +230,16 @@ describe('reviewed project registration', () => {
     await user.click(screen.getByRole('button', { name: 'Review configuration' }))
     expect(vi.mocked(reviewRegistration).mock.calls[1][0].commands![0].configuration.runtime).toBeNull()
   })
+})
+
+it('opens saved setup history from a registered project without editing or executing it', async () => {
+  vi.mocked(listProjects).mockResolvedValueOnce(ready([view]))
+  vi.mocked(listSetupLogs).mockResolvedValueOnce({ logs: [], code: '', message: '' })
+  render(<ProjectRegistry report={null} candidate={null} />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Setup history API' }))
+  expect(await screen.findByRole('dialog')).toHaveTextContent('Setup history · API')
+  expect(await screen.findByText('No saved setup attempts for this project.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Edit project API' })).toBeDisabled()
+  await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+  expect(screen.getByRole('button', { name: 'Edit project API' })).toBeEnabled()
 })

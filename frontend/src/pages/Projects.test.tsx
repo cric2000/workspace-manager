@@ -2,9 +2,9 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Projects } from './Projects'
-import { browseProjectDirectory, inspectProject, listProjects, type Report, type Result } from '../services/projects'
+import { browseProjectDirectory, inspectProject, listProjects, listCreationLogs, type Report, type Result } from '../services/projects'
 
-vi.mock('../services/projects', () => ({ inspectProject: vi.fn(), listProjects: vi.fn(), browseProjectDirectory: vi.fn() }))
+vi.mock('../services/projects', () => ({ listCreationLogs: vi.fn(), inspectProject: vi.fn(), listProjects: vi.fn(), browseProjectDirectory: vi.fn() }))
 const report: Report = {
   path: '/canonical/project with spaces', partial: false,
   stacks: [{ language: 'Go', frameworks: [], packageManagers: ['Go modules'], evidence: ['go.mod'], entryPoints: ['cmd/api', 'cmd/worker'] }],
@@ -110,4 +110,16 @@ describe('read-only project inspection', () => {
     await act(async () => complete(ready()))
     expect(screen.queryByRole('region', { name: 'Project inspection results' })).not.toBeInTheDocument()
   })
+})
+
+it('opens creation history even without any registered projects', async () => {
+  vi.mocked(listProjects).mockResolvedValueOnce({ state: { projects: [] }, code: '', message: '', committed: false })
+  vi.mocked(listCreationLogs).mockResolvedValueOnce({ logs: [], next: '', code: '', message: '' })
+  render(<Projects />)
+  await userEvent.click(screen.getByRole('button', { name: 'Creation history' }))
+  expect(await screen.findByRole('dialog')).toHaveTextContent('Creation history')
+  expect(await screen.findByText('No saved creation attempts on this page.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'New project' })).toBeDisabled()
+  await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+  expect(screen.getByRole('button', { name: 'New project' })).toBeEnabled()
 })

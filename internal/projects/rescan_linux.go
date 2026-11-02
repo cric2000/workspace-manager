@@ -89,7 +89,7 @@ func (service *Service) RescanProject(ctx context.Context, target ProjectTarget)
 		status := CandidateComparison{MatchingCommandIDs: []domain.ID{}}
 		action, err := normalizeAction(domain.CommandAction{Executable: candidate.Program, Arguments: candidate.Arguments, WorkingDirectory: candidate.WorkingDirectory}, path)
 		if err == nil {
-			_, err = identity(action.Executable, true)
+			_, err = executableIdentities(action.Executable)
 			if err == nil {
 				status.Available, status.ResolvedExecutable = true, action.Executable
 				for _, command := range saved.Project.Commands {

@@ -156,7 +156,23 @@ func (service *Service) ServiceShutdown() error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	service.closed = true
+	if service.versionCancel != nil {
+		service.versionCancel()
+	}
 	clear(service.reviews)
+	clear(service.recoveryReviews)
+	for _, pending := range service.creations {
+		if pending.cancel != nil {
+			pending.cancel()
+		}
+	}
+	clear(service.creations)
+	for _, pending := range service.setups {
+		if pending.cancel != nil {
+			pending.cancel()
+		}
+	}
+	clear(service.setups)
 	if service.registry == nil {
 		return nil
 	}
@@ -234,6 +250,40 @@ func identity(path string, executable bool) (fileIdentity, error) {
 	return id, nil
 }
 
+// Pin both the invocation location/link and the resolved binary. A symlinked
+// interpreter must retain its invocation path while replacement invalidates review.
+func executableIdentities(path string) ([]fileIdentity, error) {
+	parent, err := canonicalDirectory(filepath.Dir(path))
+	if err != nil || parent != filepath.Dir(path) {
+		return nil, errExecutable
+	}
+	directory, err := identity(parent, false)
+	if err != nil {
+		return nil, errExecutable
+	}
+	ids := []fileIdentity{directory}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, errExecutable
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return nil, errExecutable
+		}
+		ids = append(ids, fileIdentity{Path: path, Device: uint64(stat.Dev), Inode: stat.Ino, Mode: stat.Mode, Size: stat.Size, Modified: stat.Mtim, Changed: stat.Ctim})
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, errExecutable
+	}
+	binary, err := identity(resolved, true)
+	if err != nil {
+		return nil, errExecutable
+	}
+	return append(ids, binary), nil
+}
+
 func commandIdentities(project domain.Project) ([]fileIdentity, error) {
 	root, err := canonicalDirectory(project.Path)
 	if err != nil || root != project.Path {
@@ -256,15 +306,12 @@ func commandIdentities(project domain.Project) ([]fileIdentity, error) {
 		if err != nil {
 			return nil, err
 		}
-		program, err := filepath.EvalSymlinks(configuration.Executable)
-		if err != nil || program != configuration.Executable {
-			return nil, errReview
-		}
-		executable, err := identity(program, true)
+		executable, err := executableIdentities(configuration.Executable)
 		if err != nil {
 			return nil, err
 		}
-		ids = append(ids, directory, executable)
+		ids = append(ids, directory)
+		ids = append(ids, executable...)
 	}
 	return ids, nil
 }
@@ -342,8 +389,14 @@ func normalizeAction(action domain.CommandAction, path string) (domain.CommandAc
 			return action, errExecutable
 		}
 	}
-	action.Executable, err = filepath.EvalSymlinks(action.Executable)
+	// Keep the invocation basename: resolving a venv's Python symlink changes
+	// sys.prefix and silently discards its installed dependencies.
+	parent, err := canonicalDirectory(filepath.Dir(action.Executable))
 	if err != nil {
+		return action, errExecutable
+	}
+	action.Executable = filepath.Join(parent, filepath.Base(action.Executable))
+	if _, err := executableIdentities(action.Executable); err != nil {
 		return action, errExecutable
 	}
 	if action.Validate() != nil {

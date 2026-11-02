@@ -2,7 +2,10 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -12,7 +15,7 @@ import (
 // Entity records have stable IDs; settings are a separate singleton repository.
 type Entity interface {
 	Record
-	domain.Workspace | domain.Project | domain.Session
+	domain.Workspace | domain.Project | domain.Session | domain.SetupLog | domain.CreationLog | domain.BootstrapRecovery
 }
 
 type Repository[T Entity] struct{ store *recordStore[T] }
@@ -39,6 +42,12 @@ func entityID[T Entity](value T) domain.ID {
 	case domain.Project:
 		return entity.ID
 	case domain.Session:
+		return entity.ID
+	case domain.SetupLog:
+		return entity.ID
+	case domain.CreationLog:
+		return entity.ID
+	case domain.BootstrapRecovery:
 		return entity.ID
 	default:
 		panic("Entity constraint and entityID must be updated together")
@@ -89,41 +98,74 @@ func (repository *Repository[T]) Get(ctx context.Context, id domain.ID) (Snapsho
 }
 
 func (repository *Repository[T]) List(ctx context.Context) ([]Snapshot[T], error) {
+	return repository.ListBounded(ctx, 0)
+}
+
+var ErrRecordLimit = errors.New("repository record count exceeds the requested limit")
+
+// ListBounded fails without partial results when limit is exceeded. Zero keeps
+// the ordinary List behavior. Directory entries are read in bounded batches.
+func (repository *Repository[T]) ListBounded(ctx context.Context, limit int) ([]Snapshot[T], error) {
+	if limit < 0 {
+		return nil, ErrRecordLimit
+	}
 	var snapshots []Snapshot[T]
-	err := repository.store.transaction(ctx, func() error {
+	err := repository.Scan(ctx, func(snapshot Snapshot[T]) error {
+		if limit > 0 && len(snapshots) >= limit {
+			return ErrRecordLimit
+		}
+		snapshots = append(snapshots, snapshot)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(snapshots, func(i, j int) bool { return entityID(snapshots[i].Value) < entityID(snapshots[j].Value) })
+	return snapshots, nil
+}
+
+// Scan visits one bounded document at a time under the repository lock. The
+// callback must be quick and must not call back into this repository. Callers
+// can retain a bounded selection without first loading all record bodies.
+func (repository *Repository[T]) Scan(ctx context.Context, visit func(Snapshot[T]) error) error {
+	if visit == nil {
+		return ErrInvalidDocument
+	}
+	return repository.store.transaction(ctx, func() error {
 		directory, err := privateDirectory(repository.store.root)
 		if err != nil {
 			return err
 		}
 		defer directory.Close()
-		entries, err := directory.ReadDir(-1)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			if err := ctx.Err(); err != nil {
+		for {
+			entries, err := directory.ReadDir(128)
+			if err != nil && !errors.Is(err, io.EOF) {
 				return err
 			}
-			if !strings.HasSuffix(entry.Name(), ".json") {
-				continue
+			if len(entries) == 0 {
+				return ctx.Err()
 			}
-			id := domain.ID(strings.TrimSuffix(entry.Name(), ".json"))
-			if err := id.Validate(); err != nil {
-				return fmt.Errorf("%w: unexpected JSON filename in repository", ErrInvalidDocument)
+			for _, entry := range entries {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if !strings.HasSuffix(entry.Name(), ".json") {
+					continue
+				}
+				id := domain.ID(strings.TrimSuffix(entry.Name(), ".json"))
+				if err := id.Validate(); err != nil {
+					return fmt.Errorf("%w: unexpected JSON filename in repository", ErrInvalidDocument)
+				}
+				snapshot, _, err := repository.store.read(entry.Name())
+				if err != nil {
+					return err
+				}
+				if err := visit(snapshot); err != nil {
+					return err
+				}
 			}
-			snapshot, _, err := repository.store.read(entry.Name())
-			if err != nil {
-				return err
-			}
-			snapshots = append(snapshots, snapshot)
 		}
-		sort.Slice(snapshots, func(i, j int) bool { return entityID(snapshots[i].Value) < entityID(snapshots[j].Value) })
-		return nil
 	})
-	if err != nil {
-		return nil, err // A failed list is never a misleading partial success.
-	}
-	return snapshots, nil
 }
 
 // Update rejects sessions. Changes run once while the transaction lock is held;
@@ -232,6 +274,17 @@ func stableIdentity[T Record](before, after T) error {
 	case domain.Session:
 		next := any(after).(domain.Session)
 		valid = old.ID == next.ID && old.ParentSessionID == next.ParentSessionID
+	case domain.SetupLog:
+		next := any(after).(domain.SetupLog)
+		valid = old.ID == next.ID && old.ProjectID == next.ProjectID && old.Kind == next.Kind && old.Label == next.Label && old.RecordedAt.Equal(next.RecordedAt) && old.Result == nil && next.Result != nil
+	case domain.CreationLog:
+		next := any(after).(domain.CreationLog)
+		valid = old.ID == next.ID && old.ProjectID == next.ProjectID && old.Name == next.Name && old.Path == next.Path && old.TemplateID == next.TemplateID && old.Kind == next.Kind && old.RecordedAt.Equal(next.RecordedAt) && old.Result == nil && next.Result != nil
+	case domain.BootstrapRecovery:
+		next := any(after).(domain.BootstrapRecovery)
+		valid = next.Assessment != nil && (old.Assessment == nil || !next.Assessment.CheckedAt.Before(old.Assessment.CheckedAt))
+		old.Assessment, next.Assessment = nil, nil
+		valid = valid && reflect.DeepEqual(old, next)
 	}
 	if !valid {
 		return fmt.Errorf("%w: update changed immutable identity or moved updatedAt backwards", ErrInvalidDocument)

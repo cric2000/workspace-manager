@@ -15,6 +15,9 @@ login startup and Save & Shutdown are still being built.
 - Discover desktop applications and review desktop/custom executable launches.
 - Inspect projects, compare rescans and save reviewed commands, environment-file references,
   readiness, preview, editor, stop and delay settings. Saving runs no project code.
+- Preview and create Go, Node.js/TypeScript, Python, FastAPI or official Next.js starters; commands require review.
+- Check tool versions, review Git/venv/dependency setup, and revisit creation/setup history.
+- Reconcile interrupted creation/setup and review restoration of a verified missing registration.
 - Remove unused project registrations while preserving source files and history.
 - Store configuration locally using XDG paths, versioned JSON and atomic writes.
 
@@ -51,6 +54,8 @@ wails3 task test
 
 This builds the frontend and runs Go race tests, Go vet and frontend tests.
 Native Wayland checks are available in `scripts/native-smoke.py`.
+Setup requires separate command approval and preserves partial files on failure.
+Next.js preparation downloads the official scaffolder before a separate file review.
 
 See the [roadmap](docs/roadmap.md) for remaining work and
 [architecture](docs/architecture.md) for design decisions.

@@ -3,6 +3,13 @@
 Build with: go build -tags production,mcp -buildvcs=false -o bin/workspace-manager-smoke .
 Run from a graphical Wayland session: python3 scripts/native-smoke.py
 For project-only iteration: python3 scripts/native-smoke.py --projects-only
+For starter creation: python3 scripts/native-smoke.py --creation-only
+For Node creation: python3 scripts/native-smoke.py --node-creation-only
+For Python creation: python3 scripts/native-smoke.py --python-creation-only
+For FastAPI creation: python3 scripts/native-smoke.py --fastapi-creation-only
+For restart recovery: python3 scripts/native-smoke.py --recovery-only
+For reviewed setup: python3 scripts/native-smoke.py --setup-only (downloads Node dependencies)
+For Next.js creation: python3 scripts/native-smoke.py --next-creation-only (downloads the pinned official scaffolder)
 All app data and project fixtures are temporary. The normal production binary has
 no MCP endpoint. No project commands run here; application tests use owned helpers.
 """
@@ -99,8 +106,8 @@ class Native:
     def js(self, source):
         return self.tool("js_eval", js=source)
 
-    def until(self, expression):
-        deadline = time.monotonic() + 12
+    def until(self, expression, timeout=12):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.js("return Boolean(" + expression + ");"):
                 return
@@ -167,9 +174,41 @@ def main():
     sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("--projects-only", action="store_true", help="Run the isolated project inspection/settings workflow")
+    parser.add_argument("--creation-only", action="store_true", help="Run all five isolated starter creation workflows (Next.js downloads its pinned scaffolder)")
+    parser.add_argument("--node-creation-only", action="store_true", help="Run the isolated Node.js + TypeScript creation workflow")
+    parser.add_argument("--python-creation-only", action="store_true", help="Run the isolated Python creation workflow")
+    parser.add_argument("--fastapi-creation-only", action="store_true", help="Run the isolated FastAPI creation and local-interpreter approval workflow")
+    parser.add_argument("--next-creation-only", action="store_true", help="Run Next.js command approval, official preparation and final publication; downloads create-next-app")
+    parser.add_argument("--setup-only", action="store_true", help="Run reviewed Git/npm/venv setup on temporary generated projects; downloads Node dependencies")
+    parser.add_argument("--recovery-only", action="store_true", help="Run isolated interrupted publication recovery and guarded registration restoration")
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="workspace-native-check-") as directory:
         temporary = Path(directory)
+        if arguments.recovery_only:
+            check_recovery(temporary)
+            return
+        if arguments.setup_only:
+            check_setup(temporary)
+            return
+        if arguments.next_creation_only:
+            check_next_creation(temporary)
+            return
+        if arguments.fastapi_creation_only:
+            check_fastapi_creation(temporary)
+            return
+        if arguments.python_creation_only:
+            check_python_creation(temporary)
+            return
+        if arguments.node_creation_only:
+            check_node_creation(temporary)
+            return
+        if arguments.creation_only:
+            check_creation(temporary)
+            check_node_creation(temporary)
+            check_python_creation(temporary)
+            check_fastapi_creation(temporary)
+            check_next_creation(temporary)
+            return
         if arguments.projects_only:
             check_projects(temporary)
             return
@@ -397,6 +436,12 @@ def main():
         print("PASS: application order/preferences persist, duplicate independently and retain unavailable references through save/reopen; picker fits a narrow CSS viewport.")
         print("PASS: close/reopen preserves profiles, stable identities and default; confirmed deletion removes only selected metadata and restores focus.")
         check_projects(temporary)
+        check_creation(temporary)
+        check_node_creation(temporary)
+        check_python_creation(temporary)
+        check_fastapi_creation(temporary)
+        check_next_creation(temporary)
+        check_setup(temporary)
 
 
 def check_projects(temporary):
@@ -632,6 +677,613 @@ def check_projects(temporary):
     assert {path.relative_to(project): path.read_bytes() for path in project.rglob('*') if path.is_file()} == expected_files
     print('PASS: native project import/review/rescan, workspace association/duplication/reopen, guarded metadata removal and narrow picker layout; source and approval history preserved, no project execution or secret copy.')
     print("PASS: all persistent test writes stayed in temporary XDG directories; all GUI instances exited cleanly.")
+
+def check_creation(temporary):
+    parent = temporary / 'new-projects'
+    parent.mkdir()
+    target = parent / 'hello-go'
+    existing = parent / 'existing'
+    existing.mkdir()
+    (existing / 'keep.txt').write_text('user files stay exactly here')
+    records = temporary / 'config/workspace-manager/projects'
+    before_records = {path.name: path.read_bytes() for path in records.glob('*.json')}
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
+        app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option')")
+        assert app.js("return document.activeElement.id === 'creation-name';")
+        app.fill('#creation-name', 'existing')
+        app.fill('#creation-parent', str(parent))
+        app.fill('#creation-module', 'example.com/native/hello-go')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('dialog [role=alert]')?.textContent.includes('destination already exists')")
+        assert (existing / 'keep.txt').read_text() == 'user files stay exactly here'
+        app.fill('#creation-name', 'hello-go')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        assert not target.exists()
+        assert app.js("return [...document.querySelectorAll('.project-creation-files summary')].map(item => item.textContent);") == ['go.mod', 'main.go', '.gitignore', 'README.md']
+        assert app.js("return document.querySelector('section[aria-label=\"Suggested startup command\"]').textContent.includes('review required');")
+        app.click('dialog .dialog-actions .secondary-button')
+        app.until("document.querySelector('#creation-module')")
+        app.fill('#creation-module', 'example.com/native/reviewed-go')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        assert not target.exists()
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("document.querySelector('ol[aria-label=\"Creation activity\"]')")
+        assert app.js("return document.querySelector('dialog').textContent.includes('Created and registered') && document.querySelector('dialog').textContent.includes('No project code was executed');")
+        assert sorted(path.name for path in target.iterdir()) == ['.gitignore', 'README.md', 'go.mod', 'main.go']
+        assert 'module example.com/native/reviewed-go' in (target / 'go.mod').read_text()
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog') && document.querySelector('article[aria-label=\"Registered project hello-go\"]')")
+        assert app.js("return document.querySelector('article[aria-label=\"Registered project hello-go\"]').textContent.includes('Review required');")
+        app.close()
+    created_records = [path for path in records.glob('*.json') if path.name not in before_records]
+    assert len(created_records) == 1
+    saved = json.loads(created_records[0].read_text())['data']
+    assert saved['source'] == 'bootstrapped' and saved['path'] == str(target)
+    assert saved['commands'][0]['configuration']['arguments'] == ['run', '.']
+    assert not saved['commands'][0].get('approval')
+    source = {path.name: path.read_bytes() for path in target.iterdir()}
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('article[aria-label=\"Registered project hello-go\"]')")
+        app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
+        app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option')")
+        app.fill('#creation-name', 'preview-only')
+        app.fill('#creation-parent', str(parent))
+        app.fill('#creation-module', 'example.com/native/preview-only')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        app.js("document.querySelectorAll('.project-creation-files details').forEach(element => element.open = true); return true;")
+        app.narrow_viewport()
+        app.assert_layout()
+        app.close()
+    assert not (parent / 'preview-only').exists()
+    assert {path.name: path.read_bytes() for path in target.iterdir()} == source
+    assert (existing / 'keep.txt').read_text() == 'user files stay exactly here'
+    assert not list(parent.glob('.workspace-manager-*'))
+    assert all((records / name).read_bytes() == data for name, data in before_records.items())
+    print('PASS: native Go creation preview/edit/confirm, existing destination protection, bootstrapped registration/reopen, unapproved startup command and narrow file preview; no project execution or overwrite.')
+
+
+def check_node_creation(temporary):
+    parent = temporary / 'node-projects'
+    parent.mkdir()
+    target = parent / 'hello-node'
+    records = temporary / 'config/workspace-manager/projects'
+    before_records = {path.name: path.read_bytes() for path in records.glob('*.json')}
+
+    def options(app, name):
+        app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
+        app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option[value=\"node-typescript\"]')")
+        app.js("const select = document.querySelector('#creation-template'); select.value = 'node-typescript'; select.dispatchEvent(new Event('change', {bubbles:true})); return true;")
+        app.until("!document.querySelector('#creation-module')")
+        app.fill('#creation-name', name)
+        app.fill('#creation-parent', str(parent))
+
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        options(app, 'Uppercase_Node')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('dialog [role=alert]')?.textContent.includes('lowercase')")
+        assert not list(parent.iterdir())
+        app.fill('#creation-name', 'hello-node')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        assert not target.exists()
+        assert app.js("return [...document.querySelectorAll('.project-creation-files summary')].map(item => item.textContent);") == ['package.json', 'tsconfig.json', 'src/index.ts', '.gitignore', 'README.md']
+        assert app.js("return document.querySelector('section[aria-label=\"Separate dependency setup\"]').textContent.includes('No packages will be installed') && document.querySelector('section[aria-label=\"Separate dependency setup\"]').textContent.includes('--ignore-scripts');")
+        app.click('dialog button[aria-label="Close dialog"]')
+        app.until("!document.querySelector('dialog')")
+        assert not target.exists()
+        options(app, 'hello-node')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("document.querySelector('ol[aria-label=\"Creation activity\"]')")
+        assert app.js("return document.querySelector('dialog').textContent.includes('Generated 5 reviewed files') && document.querySelector('dialog').textContent.includes('Created and registered');")
+        assert not (target / 'node_modules').exists() and not (target / 'package-lock.json').exists()
+        # Closing the result must refresh registration state just like Done.
+        app.click('dialog button[aria-label="Close dialog"]')
+        app.until("!document.querySelector('dialog') && document.querySelector('article[aria-label=\"Registered project hello-node\"]')")
+        app.close()
+    created = [path for path in records.glob('*.json') if path.name not in before_records]
+    assert len(created) == 1
+    saved = json.loads(created[0].read_text())['data']
+    assert saved['source'] == 'bootstrapped' and saved['path'] == str(target)
+    assert saved['commands'][0]['configuration']['arguments'] == ['--watch', 'src/index.ts']
+    assert not saved['commands'][0].get('approval')
+    source = {str(path.relative_to(target)): path.read_bytes() for path in target.rglob('*') if path.is_file()}
+    assert sorted(source) == ['.gitignore', 'README.md', 'package.json', 'src/index.ts', 'tsconfig.json']
+    package = json.loads(source['package.json'])
+    assert package['private'] and package['scripts']['dev'] == 'node --watch src/index.ts'
+    assert package['devDependencies']['typescript'] == '7.0.2'
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('article[aria-label=\"Registered project hello-node\"]')")
+        app.click('article[aria-label="Registered project hello-node"] .secondary-button')
+        app.until("document.querySelector('#registration-name')")
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('[aria-label=\"Registration review\"]')")
+        assert app.js("return [...document.querySelectorAll('dialog .project-command-editor > .launch-review li')].map(item => item.textContent);") == ['"--watch"', '"src/index.ts"']
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog')")
+        approved = json.loads(created[0].read_text())['data']
+        assert approved['source'] == 'bootstrapped' and approved['commands'][0]['approval']['fingerprint']
+        options(app, 'preview-only-node')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Separate dependency setup\"]')")
+        app.js("document.querySelectorAll('.project-creation-files details').forEach(element => element.open = true); return true;")
+        app.narrow_viewport()
+        app.assert_layout()
+        app.close()
+    assert not (parent / 'preview-only-node').exists()
+    assert {str(path.relative_to(target)): path.read_bytes() for path in target.rglob('*') if path.is_file()} == source
+    assert not list(parent.glob('.workspace-manager-*'))
+    assert all((records / name).read_bytes() == data for name, data in before_records.items())
+    print('PASS: native Node/TypeScript selection/naming, exact five-file preview, separate npm setup, nested creation/reopen and later command approval; preview/cancel preserve source and no dependencies or project commands run.')
+
+
+def check_python_creation(temporary):
+    parent = temporary / 'python-projects'
+    parent.mkdir()
+    target = parent / 'hello-python'
+    records = temporary / 'config/workspace-manager/projects'
+    before_records = {path.name: path.read_bytes() for path in records.glob('*.json')}
+
+    def options(app, name):
+        app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
+        app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option[value=\"python\"]')")
+        app.js("const select = document.querySelector('#creation-template'); select.value = 'python'; select.dispatchEvent(new Event('change', {bubbles:true})); return true;")
+        app.until("!document.querySelector('#creation-module')")
+        app.fill('#creation-name', name)
+        app.fill('#creation-parent', str(parent))
+
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        options(app, 'trailing-')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('dialog [role=alert]')?.textContent.includes('ending with a letter or digit')")
+        assert not list(parent.iterdir())
+        app.fill('#creation-name', 'hello-python')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        assert not target.exists()
+        assert app.js("return [...document.querySelectorAll('.project-creation-files summary')].map(item => item.textContent);") == ['pyproject.toml', 'main.py', 'tests/test_main.py', '.gitignore', 'README.md']
+        assert app.js("return document.querySelector('section[aria-label=\"Separate optional virtual environment\"]').textContent.includes('not run') && document.querySelector('section[aria-label=\"Separate optional virtual environment\"]').textContent.includes('.venv');")
+        app.click('dialog button[aria-label="Close dialog"]')
+        app.until("!document.querySelector('dialog')")
+        assert not target.exists()
+        options(app, 'hello-python')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("document.querySelector('ol[aria-label=\"Creation activity\"]')")
+        assert app.js("return document.querySelector('dialog').textContent.includes('Generated 5 reviewed files') && document.querySelector('dialog').textContent.includes('Created and registered');")
+        for name in ['.venv', '__pycache__', 'tests/__pycache__', 'build', 'dist']:
+            assert not (target / name).exists(), name
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog') && document.querySelector('article[aria-label=\"Registered project hello-python\"]')")
+        app.close()
+    created = [path for path in records.glob('*.json') if path.name not in before_records]
+    assert len(created) == 1
+    saved = json.loads(created[0].read_text())['data']
+    assert saved['source'] == 'bootstrapped' and saved['path'] == str(target)
+    assert saved['commands'][0]['configuration']['arguments'] == ['-B', 'main.py']
+    assert not saved['commands'][0].get('approval')
+    source = {str(path.relative_to(target)): path.read_bytes() for path in target.rglob('*') if path.is_file()}
+    assert sorted(source) == ['.gitignore', 'README.md', 'main.py', 'pyproject.toml', 'tests/test_main.py']
+    assert b'requires-python = ">=3.11"' in source['pyproject.toml']
+    assert b'python3 -m venv .venv' in source['README.md']
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('article[aria-label=\"Registered project hello-python\"]')")
+        app.click('article[aria-label="Registered project hello-python"] .secondary-button')
+        app.until("document.querySelector('#registration-name')")
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('[aria-label=\"Registration review\"]')")
+        assert app.js("return [...document.querySelectorAll('dialog .project-command-editor > .launch-review li')].map(item => item.textContent);") == ['"-B"', '"main.py"']
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog')")
+        approved = json.loads(created[0].read_text())['data']
+        assert approved['source'] == 'bootstrapped' and approved['commands'][0]['approval']['fingerprint']
+        options(app, 'preview-only-python')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Separate optional virtual environment\"]')")
+        app.js("document.querySelectorAll('.project-creation-files details').forEach(element => element.open = true); return true;")
+        app.narrow_viewport()
+        app.assert_layout()
+        app.close()
+    assert not (parent / 'preview-only-python').exists()
+    assert {str(path.relative_to(target)): path.read_bytes() for path in target.rglob('*') if path.is_file()} == source
+    assert not list(parent.glob('.workspace-manager-*'))
+    assert all((records / name).read_bytes() == data for name, data in before_records.items())
+    print('PASS: native Python selection/naming, exact five-file preview, separate optional venv step, creation/reopen and later command approval; cancellation preserves source and no Python or environment setup runs during creation.')
+
+
+
+def check_fastapi_creation(temporary):
+    parent = temporary / 'fastapi-projects'
+    parent.mkdir()
+    target = parent / 'hello-api'
+    records = temporary / 'config/workspace-manager/projects'
+    before_records = {path.name: path.read_bytes() for path in records.glob('*.json')}
+
+    def options(app, name):
+        app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
+        app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option[value=\"fastapi\"]')")
+        app.js("const select = document.querySelector('#creation-template'); select.value = 'fastapi'; select.dispatchEvent(new Event('change', {bubbles:true})); return true;")
+        app.until("!document.querySelector('#creation-module')")
+        app.fill('#creation-name', name)
+        app.fill('#creation-parent', str(parent))
+
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        options(app, 'hello-api')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        assert not target.exists()
+        assert app.js("return [...document.querySelectorAll('.project-creation-files summary')].map(item => item.textContent);") == ['pyproject.toml', 'app/__init__.py', 'app/main.py', 'tests/test_api.py', '.gitignore', 'README.md']
+        assert app.js("return document.querySelector('section[aria-label=\"Separate install fastapi dependencies\"]').textContent.includes('.[test]') && document.querySelector('section[aria-label=\"Suggested startup command\"]').textContent.includes('HTTP 200: http://127.0.0.1:8000/health');")
+        app.click('dialog button[aria-label="Close dialog"]')
+        app.until("!document.querySelector('dialog')")
+        assert not target.exists()
+        options(app, 'hello-api')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("document.querySelector('ol[aria-label=\"Creation activity\"]')")
+        assert app.js("return document.querySelector('dialog').textContent.includes('Generated 6 reviewed files') && document.querySelector('dialog').textContent.includes('Created and registered');")
+        assert not (target / '.venv').exists()
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog') && document.querySelector('article[aria-label=\"Registered project hello-api\"]')")
+        app.click('article[aria-label="Registered project hello-api"] .secondary-button')
+        app.until("document.querySelector('#registration-name')")
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('dialog [role=alert]')?.textContent.includes('unavailable')")
+        app.click('dialog button[aria-label="Close dialog"]')
+        app.until("!document.querySelector('dialog')")
+        app.close()
+    created = [path for path in records.glob('*.json') if path.name not in before_records]
+    assert len(created) == 1
+    saved = json.loads(created[0].read_text())['data']
+    config = saved['commands'][0]['configuration']
+    interpreter = target / '.venv/bin/python'
+    assert saved['source'] == 'bootstrapped' and config['executable'] == str(interpreter)
+    assert not saved['commands'][0].get('approval')
+    assert config['runtime']['readiness']['url'] == 'http://127.0.0.1:8000/health'
+    assert saved['preferences']['previewUrl'] == 'http://127.0.0.1:8000/docs'
+    source = {str(path.relative_to(target)): path.read_bytes() for path in target.rglob('*') if path.is_file()}
+    # Test-owned manual environment setup only, without pip or dependencies. This
+    # makes the interpreter reviewable; no server or generated source is run.
+    subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(target / '.venv')], check=True, timeout=20)
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('article[aria-label=\"Registered project hello-api\"]')")
+        app.click('article[aria-label="Registered project hello-api"] .secondary-button')
+        app.until("document.querySelector('#registration-name')")
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('[aria-label=\"Registration review\"]')")
+        assert app.js("return document.querySelector('[aria-label=\"Registration review\"]').textContent.includes('.venv/bin/python');")
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog')")
+        approved = json.loads(created[0].read_text())['data']
+        assert approved['source'] == 'bootstrapped' and approved['commands'][0]['approval']['fingerprint']
+        assert approved['commands'][0]['configuration']['executable'] == str(interpreter)
+        options(app, 'preview-only-api')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Separate install fastapi dependencies\"]')")
+        app.js("document.querySelectorAll('.project-creation-files details').forEach(element => element.open = true); return true;")
+        app.narrow_viewport()
+        app.assert_layout()
+        app.close()
+    assert not (parent / 'preview-only-api').exists()
+    assert all((target / name).read_bytes() == data for name, data in source.items())
+    assert not list(target.rglob('__pycache__'))
+    assert not list(parent.glob('.workspace-manager-*'))
+    assert all((records / name).read_bytes() == data for name, data in before_records.items())
+    print('PASS: native FastAPI six-file preview/cancellation, two manual setup steps, health/docs settings, creation/reopen, missing-venv rejection, later venv interpreter approval and narrow layout; no dependencies or project source executed.')
+
+
+
+def check_next_creation(temporary):
+    parent = temporary / 'next-projects'
+    parent.mkdir()
+    target = parent / 'hello-next'
+    records = temporary / 'config/workspace-manager/projects'
+    before_records = {path.name: path.read_bytes() for path in records.glob('*.json')}
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
+        app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option[value=\"nextjs\"]')")
+        app.js("const select=document.querySelector('#creation-template'); select.value='nextjs'; select.dispatchEvent(new Event('change',{bubbles:true})); return true;")
+        app.until("document.querySelector('fieldset legend')?.textContent === 'Next.js options'")
+        app.fill('#creation-name', 'hello-next')
+        app.fill('#creation-parent', str(parent))
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Official scaffolder review\"]')")
+        assert not target.exists()
+        assert not app.js("return Boolean(document.querySelector('section[aria-label=\"Generated files\"]'));")
+        assert app.js("return document.querySelector('section[aria-label=\"Official scaffolder review\"]').textContent.includes('create-next-app@16.4.3') && document.querySelector('section[aria-label=\"Official scaffolder review\"]').textContent.includes('--skip-install');")
+        staging = app.js("return [...document.querySelectorAll('section[aria-label=\"Official scaffolder review\"] .launch-review dd')].at(-1).textContent;")
+        assert not Path(staging).exists()
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]') || document.querySelector('dialog [role=alert]')", timeout=90)
+        assert app.js("return Boolean(document.querySelector('section[aria-label=\"Generated files\"]'));"), app.js("return document.querySelector('dialog').textContent;")
+        assert not target.exists() and not Path(staging).exists()
+        names = app.js("return [...document.querySelectorAll('.project-creation-files summary')].map(item=>item.textContent);")
+        assert 'src/app/page.tsx' in names and 'package.json' in names and 'tsconfig.json' in names
+        assert 'AGENTS.md' not in names
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("document.querySelector('ol[aria-label=\"Creation activity\"]')")
+        assert not (target / 'node_modules').exists() and not (target / '.git').exists()
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog') && document.querySelector('article[aria-label=\"Registered project hello-next\"]')")
+        app.close()
+    created = [path for path in records.glob('*.json') if path.name not in before_records]
+    assert len(created) == 1
+    saved = json.loads(created[0].read_text())['data']
+    assert saved['source'] == 'bootstrapped' and not saved['commands'][0].get('approval')
+    assert saved['preferences']['previewUrl'] == 'http://127.0.0.1:3000'
+    assert saved['commands'][0]['configuration']['arguments'] == ['run','dev','--','--hostname','127.0.0.1','--port','3000']
+    history_dir = temporary / 'state/workspace-manager/creation-history'
+    history = [json.loads(path.read_text())['data'] for path in history_dir.glob('*.json')]
+    assert len(history) == 2 and {log['kind'] for log in history} == {'preparation','publication'}
+    assert all(log['result']['succeeded'] for log in history)
+    preparation = next(log for log in history if log['kind'] == 'preparation')
+    assert preparation['result']['processStarted'] and preparation['result']['exitCode'] == 0
+    assert preparation['result']['output']
+    review_token = Path(staging).name.removeprefix('workspace-manager-next-')
+    assert all(review_token not in path.read_text() for path in history_dir.rglob('*.json'))
+    # A failed attempt without a registration must also be visible after restart.
+    failed = dict(id=secrets.token_hex(16),projectId=secrets.token_hex(16),name='unregistered-fixture',path=str(parent/'unregistered-fixture'),templateId='go',kind='publication',recordedAt=preparation['recordedAt'],finishedAt=preparation['recordedAt'],result=dict(succeeded=False,created=False,registered=False,processStarted=False,exitCode=-1,fileCount=4,activity=[],output='',truncated=False,code='destination_exists',message='Existing destination was kept.'))
+    failed_path = history_dir / (failed['id'] + '.json')
+    failed_path.write_text(json.dumps(dict(schemaVersion=1,kind='creation-log',data=failed)))
+    failed_path.chmod(0o600)
+    history_before = {path:path.read_bytes() for path in history_dir.glob('*.json')}
+    source = {str(path.relative_to(target)):path.read_bytes() for path in target.rglob('*') if path.is_file()}
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('article[aria-label=\"Registered project hello-next\"]')")
+        app.js("[...document.querySelectorAll('button')].find(button=>button.textContent === 'Creation history').click(); return true;")
+        app.until("document.querySelector('[aria-label=\"hello-next preparation history\"]')")
+        assert app.js("return document.querySelector('[aria-label=\"hello-next preparation history\"]').textContent.includes('Tool process started: yes. Exit code: 0');")
+        assert app.js("return document.querySelector('[aria-label=\"hello-next publication history\"]').textContent.includes('Files published: yes. Registration saved: yes');")
+        assert app.js("return document.querySelector('[aria-label=\"unregistered-fixture publication history\"]').textContent.includes('Existing destination was kept.');")
+        assert all(path.read_bytes() == data for path,data in history_before.items())
+        assert len(list(history_dir.glob('*.json'))) == 3
+        app.narrow_viewport()
+        app.assert_layout()
+        app.js("[...document.querySelectorAll('dialog button')].find(button=>button.textContent === 'Done').click(); return true;")
+        app.until("!document.querySelector('dialog')")
+        app.click('article[aria-label="Registered project hello-next"] .secondary-button')
+        app.until("document.querySelector('#registration-name')")
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('[aria-label=\"Registration review\"]')")
+        app.click('dialog .dialog-actions .primary-button')
+        app.until("!document.querySelector('dialog')")
+        approved = json.loads(created[0].read_text())['data']
+        assert approved['commands'][0]['approval']['fingerprint']
+        app.js("[...document.querySelectorAll('button')].find(button=>button.textContent === 'New project').click(); return true;")
+        app.until("document.querySelector('#creation-name')?.matches(':enabled')")
+        app.js("const select=document.querySelector('#creation-template'); select.value='nextjs'; select.dispatchEvent(new Event('change',{bubbles:true})); return true;")
+        app.fill('#creation-name','preview-only-next')
+        app.fill('#creation-parent',str(parent))
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Official scaffolder review\"]')")
+        app.narrow_viewport()
+        app.assert_layout()
+        app.close()
+    assert not (parent / 'preview-only-next').exists()
+    assert {str(path.relative_to(target)):path.read_bytes() for path in target.rglob('*') if path.is_file()} == source
+    assert all((records / name).read_bytes() == data for name,data in before_records.items())
+    print('PASS: native creation/scaffolding history after restart, saved real tool output and unregistered failure, token redaction/read-only history, Next.js consent and preparation, separate exact-file publication, no dependency/Git setup, unapproved startup/reopen/later approval and narrow command review.')
+
+
+
+def check_setup(temporary):
+    parent = temporary / 'setup-projects'
+    parent.mkdir()
+    records = temporary / 'config/workspace-manager/projects'
+
+    def button(app, text):
+        app.js("[...document.querySelectorAll('dialog button')].find(button=>button.textContent === " + json.dumps(text) + ").click(); return true;")
+
+    def create(app, template, name):
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        app.js("[...document.querySelectorAll('button')].find(button=>button.textContent === 'New project').click(); return true;")
+        app.until("document.querySelector('#creation-name')?.matches(':enabled')")
+        app.js("const select=document.querySelector('#creation-template');select.value=" + json.dumps(template) + ";select.dispatchEvent(new Event('change',{bubbles:true}));return true;")
+        app.fill('#creation-name',name)
+        app.fill('#creation-parent',str(parent))
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        button(app,'Check tool versions')
+        app.until("document.querySelector('[aria-label=\"Tool version checks\"] [role=status]')")
+        text = app.js("return document.querySelector('[aria-label=\"Tool version checks\"] [role=status]').textContent;")
+        assert 'supported' in text and 'unconfirmed' not in text and 'unsupported' not in text, text
+        assert not (parent / name).exists()
+        button(app, 'Confirm and create project')
+        app.until("document.querySelector('section[aria-label=\"Optional project setup\"]')")
+
+    def versions(app):
+        region = '[aria-label="Tool version checks"]'
+        assert not app.js("return !!document.querySelector('" + region + " [role=status]');")
+        button(app,'Check tool versions')
+        app.until("document.querySelector('" + region + " [role=status]')")
+        text = app.js("return document.querySelector('" + region + " [role=status]').textContent;")
+        assert 'supported' in text and 'unsupported' not in text and 'unconfirmed' not in text, text
+        assert app.js("return ![...document.querySelectorAll('dialog button')].find(button=>button.textContent === 'Run reviewed setup').disabled;")
+
+    target = parent / 'setup-node'
+    with Native(temporary) as app:
+        create(app,'node-typescript','setup-node')
+        source = (target / 'src/index.ts').read_bytes()
+        button(app,'Review Git initialization')
+        app.until("document.querySelector('[aria-label=\"Setup command review\"]')")
+        assert not (target / '.git').exists()
+        assert app.js("return document.querySelector('[aria-label=\"Setup command review\"]').textContent.includes('--initial-branch=main');")
+        versions(app)
+        button(app,'Run reviewed setup')
+        app.until("document.querySelector('[aria-label=\"git setup result\"]')?.textContent.includes('completed')")
+        assert (target / '.git/HEAD').read_text() == 'ref: refs/heads/main\n'
+        assert not (target / '.git/index').exists()
+        button(app,'Review dependency installation')
+        app.until("document.querySelector('[aria-label=\"Setup command review\"]')")
+        assert not (target / 'node_modules').exists()
+        assert app.js("return document.querySelector('[aria-label=\"Setup command review\"]').textContent.includes('--ignore-scripts') && document.querySelector('[aria-label=\"Setup command review\"]').textContent.includes('--workspaces=false');")
+        versions(app)
+        button(app,'Run reviewed setup')
+        app.until("document.querySelector('[aria-label=\"dependencies setup result\"]')",timeout=120)
+        assert app.js("return document.querySelector('[aria-label=\"dependencies setup result\"]').textContent.includes('completed');"), app.js("return document.querySelector('dialog').textContent;")
+        assert (target / 'node_modules/typescript').is_dir() and (target / 'package-lock.json').is_file()
+        assert (target / 'src/index.ts').read_bytes() == source
+        app.narrow_viewport()
+        app.assert_layout()
+        app.close()
+    node_records = [json.loads(path.read_text())['data'] for path in records.glob('*.json')]
+    saved = next(project for project in node_records if project['path'] == str(target))
+    assert saved['source'] == 'bootstrapped' and not saved['commands'][0].get('approval')
+    # These commands validate only this test-owned generated fixture. The app
+    # itself has not approved or run the startup command.
+    for script in ('check','build'):
+        checked = subprocess.run(['npm','run',script],cwd=target,capture_output=True,text=True,timeout=30)
+        assert checked.returncode == 0, checked.stdout + checked.stderr
+    setup_logs = temporary / 'state/workspace-manager/setup-logs'
+    node_logs = setup_logs / saved['id']
+    completed = [json.loads(path.read_text())['data'] for path in node_logs.glob('*.json')]
+    assert len(completed) == 2 and all(log['result']['succeeded'] for log in completed)
+    assert all('executable' not in log and 'arguments' not in log for log in completed)
+    # Simulate a stopped app that recorded an attempt but lost its final result.
+    unfinished = dict(id=secrets.token_hex(16),projectId=saved['id'],kind='environment',
+                      label='Incomplete test attempt',recordedAt=completed[0]['recordedAt'])
+    unfinished_path = node_logs / (unfinished['id'] + '.json')
+    unfinished_path.write_text(json.dumps(dict(schemaVersion=1,kind='setup-log',data=unfinished)))
+    unfinished_path.chmod(0o600)
+    history_before = {path:path.read_bytes() for path in node_logs.glob('*.json')}
+    python = parent / 'setup-python'
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        app.js("[...document.querySelectorAll('button')].find(button=>button.textContent === 'Setup history setup-node').click(); return true;")
+        app.until("document.querySelector('[aria-label=\"Initialize Git history\"]')")
+        assert app.js("return document.querySelector('[aria-label=\"Install dependencies history\"]').textContent.includes('Succeeded');")
+        assert app.js("return document.querySelector('[aria-label=\"Incomplete test attempt history\"]').textContent.includes('No final outcome was saved');")
+        assert all(path.read_bytes() == data for path,data in history_before.items())
+        assert {path.name for path in node_logs.glob('*.json')} == {path.name for path in history_before}
+        app.narrow_viewport()
+        app.assert_layout()
+        button(app,'Done')
+        app.until("!document.querySelector('dialog')")
+        create(app,'python','setup-python')
+        button(app,'Review virtual environment')
+        app.until("document.querySelector('[aria-label=\"Setup command review\"]')")
+        assert not (python / '.venv').exists()
+        versions(app)
+        button(app,'Run reviewed setup')
+        app.until("document.querySelector('[aria-label=\"environment setup result\"]')?.textContent.includes('completed')",timeout=30)
+        assert (python / '.venv/pyvenv.cfg').is_file()
+        assert '/proc/' not in (python / '.venv/pyvenv.cfg').read_text()
+        button(app,'Done')
+        app.until("!document.querySelector('dialog')")
+        app.close()
+    checked = subprocess.run([str(python / '.venv/bin/python'),'-I','-B','-c','import sys;print(sys.prefix)'],capture_output=True,text=True,check=True,timeout=10)
+    assert checked.stdout.strip() == str(python / '.venv')
+    assert all(not json.loads(path.read_text())['data']['commands'][0].get('approval') for path in records.glob('*.json'))
+    print('PASS: native persistent setup history after restart, read-only unfinished outcomes, explicit version checks, separate Git/npm/venv reviews and execution, main branch without commits, dependency download with scripts disabled, bounded output/narrow layout, usable installed compiler/venv and unchanged startup approval.')
+
+
+def check_recovery(temporary):
+    parent = temporary / 'recovery-projects'
+    parent.mkdir()
+    target = parent / 'recovery-go'
+    def button(app, text, region='dialog'):
+        app.js("[...document.querySelectorAll(" + json.dumps(region + ' button') + ")].find(button=>button.textContent === " + json.dumps(text) + ").click();return true;")
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        button(app,'New project','body')
+        app.until("document.querySelector('#creation-name')?.matches(':enabled')")
+        app.fill('#creation-name','recovery-go')
+        app.fill('#creation-parent',str(parent))
+        app.fill('#creation-module','example.com/recovery')
+        app.click('dialog button[type=submit]')
+        app.until("document.querySelector('section[aria-label=\"Generated files\"]')")
+        button(app,'Confirm and create project')
+        app.until("document.querySelector('ol[aria-label=\"Creation activity\"]')")
+        button(app,'Done')
+        app.until("!document.querySelector('dialog')")
+        app.close()
+    registry = temporary / 'config/workspace-manager/projects'
+    registration = next(registry.glob('*.json'))
+    original = json.loads(registration.read_text())['data']
+    source = {str(path.relative_to(target)):path.read_bytes() for path in target.rglob('*') if path.is_file()}
+    history_dir = temporary / 'state/workspace-manager/creation-history'
+    log_file = next(history_dir.glob('*.json'))
+    log = json.loads(log_file.read_text())
+    log['data'].pop('result',None)
+    log['data'].pop('finishedAt',None)
+    log_file.write_text(json.dumps(log))
+    # Model a crash after durable publication but before registration/final logging.
+    # All removed metadata belongs exclusively to this temporary test fixture.
+    registration.rename(temporary / 'original-registration.json')
+    history_before = log_file.read_bytes()
+    region = '[aria-label="recovery-go publication history"]'
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        button(app,'Creation history','body')
+        app.until("document.querySelector('" + region + "')")
+        button(app,'Check recovery',region)
+        app.until("[...document.querySelectorAll('" + region + " button')].some(button=>button.textContent === 'Review registration recovery')")
+        assert not registration.exists()
+        button(app,'Review registration recovery',region)
+        app.until("document.querySelector('[aria-label=\"Recovered registration review\"]')")
+        assert app.js("return document.querySelector('[aria-label=\"Recovered registration review\"]').textContent.includes('unapproved');")
+        button(app,'Cancel recovery review',region)
+        assert not registration.exists()
+        button(app,'Review registration recovery',region)
+        app.until("document.querySelector('[aria-label=\"Recovered registration review\"]')")
+        button(app,'Restore registration',region)
+        app.until("document.querySelector('" + region + "').textContent.includes('Registration restored.')")
+        restored = json.loads(registration.read_text())['data']
+        assert restored['id'] == original['id'] and restored['source'] == 'bootstrapped'
+        assert restored['commands'][0]['configuration'] == original['commands'][0]['configuration']
+        assert not restored['commands'][0].get('approval')
+        assert log_file.read_bytes() == history_before
+        assert {str(path.relative_to(target)):path.read_bytes() for path in target.rglob('*') if path.is_file()} == source
+        button(app,'Check recovery',region)
+        app.until("document.querySelector('" + region + "').textContent.includes('The original registration is present.')")
+        app.narrow_viewport()
+        app.assert_layout()
+        button(app,'Done')
+        app.until("!document.querySelector('dialog')")
+        assert app.js("return !!document.querySelector('article[aria-label=\"Registered project recovery-go\"]');")
+        app.close()
+    # Later edits block restoration even when the original registration is absent.
+    registration.rename(temporary / 'restored-registration.json')
+    edited = (target / 'main.go').read_bytes() + b'\n// edited test fixture\n'
+    (target / 'main.go').write_bytes(edited)
+    with Native(temporary) as app:
+        app.click('nav button[data-page="projects"]')
+        app.until("document.querySelector('h1#projects-title')")
+        button(app,'Creation history','body')
+        app.until("document.querySelector('" + region + "')")
+        button(app,'Check recovery',region)
+        app.until("document.querySelector('" + region + "').textContent.includes('could not be verified as the reviewed starter')")
+        assert not app.js("return [...document.querySelectorAll('" + region + " button')].some(button=>button.textContent === 'Review registration recovery');")
+        assert not registration.exists() and (target / 'main.go').read_bytes() == edited
+        app.close()
+    print('PASS: native restart reconciliation, fresh/cancellable registration review, original ID/configuration restored unapproved, unchanged source/history, missing-registration refresh and refusal after source edits; no commands retried.')
+
 
 if __name__ == "__main__":
     main()

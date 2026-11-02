@@ -258,3 +258,11 @@ select:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 
 .project-choice-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .project-choice-label .project-location { display: block; }
+
+.project-creation-files { margin-block: 20px; }
+.project-creation-files details { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-block: 10px; }
+.project-creation-files summary { cursor: pointer; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.project-creation-files pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; margin-top: 12px; }
+.project-creation-log { padding-left: 20px; font-size: 12px; line-height: 1.8; }
+
+.project-setup-output { max-height: 18rem; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; font-size: 12px; line-height: 1.6; border: 1px solid var(--line); border-radius: 8px; }

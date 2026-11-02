@@ -77,3 +77,13 @@ func (paths Paths) ProjectsDir() string {
 func (paths Paths) SessionsDir() string {
 	return filepath.Join(paths.StateDir, "sessions")
 }
+
+func (paths Paths) SetupLogsDir() string {
+	return filepath.Join(paths.StateDir, "setup-logs")
+}
+
+func (paths Paths) CreationLogsDir() string { return filepath.Join(paths.StateDir, "creation-history") }
+
+func (paths Paths) BootstrapRecoveryDir() string {
+	return filepath.Join(paths.StateDir, "bootstrap-recovery")
+}

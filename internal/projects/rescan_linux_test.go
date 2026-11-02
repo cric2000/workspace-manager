@@ -196,3 +196,37 @@ func TestRescanValidationAndServiceShutdown(t *testing.T) {
 		t.Fatal(result)
 	}
 }
+
+func TestRescanPreservesSymlinkedInterpreterInvocation(t *testing.T) {
+	service, draft, paths := registryFixture(t)
+	binary := draft.Commands[0].Configuration.Executable
+	invocation := filepath.Join(t.TempDir(), "python")
+	if err := os.Symlink(binary, invocation); err != nil {
+		t.Fatal(err)
+	}
+	draft.Commands[0].Configuration.Executable = invocation
+	view := requireSave(t, service, requireReview(t, service, draft)).State.Projects[0]
+	filename := filepath.Join(paths.ProjectsDir(), string(view.Project.ID)+".json")
+	before, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.inspector = fakeInspector(func(_ context.Context, path string) (detection.Report, error) {
+		return detection.Report{Path: path, Candidates: []detection.Candidate{
+			{Label: "Local interpreter", Program: invocation, Arguments: draft.Commands[0].Configuration.Arguments, WorkingDirectory: path},
+			{Label: "Base interpreter", Program: binary, Arguments: draft.Commands[0].Configuration.Arguments, WorkingDirectory: path},
+		}}, nil
+	})
+	result := service.RescanProject(context.Background(), comparisonTarget(view))
+	if result.Code != "" || result.Comparison == nil {
+		t.Fatal(result)
+	}
+	candidates := result.Comparison.Candidates
+	if !candidates[0].Available || candidates[0].ResolvedExecutable != invocation || len(candidates[0].MatchingCommandIDs) != 1 || !candidates[1].Available || len(candidates[1].MatchingCommandIDs) != 0 {
+		t.Fatal(candidates)
+	}
+	after, err := os.ReadFile(filename)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("rescan changed saved command", err)
+	}
+}

@@ -27,7 +27,7 @@ func registryFixture(t *testing.T) (*Service, RegistrationDraft, storage.Paths) 
 	if err := os.WriteFile(tool, []byte("#!/bin/sh\ntouch \""+filepath.Join(project, "must-not-run")+"\"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	paths := storage.Paths{ConfigDir: filepath.Join(root, "config")}
+	paths := storage.Paths{ConfigDir: filepath.Join(root, "config"), StateDir: filepath.Join(root, "state"), CacheDir: filepath.Join(root, "cache")}
 	service := NewService(nil)
 	service.paths = func() (storage.Paths, error) { return paths, nil }
 	t.Cleanup(func() { _ = service.ServiceShutdown() })

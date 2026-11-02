@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"workspace-manager/internal/domain"
+	"workspace-manager/internal/projects/bootstrap"
 	"workspace-manager/internal/projects/detection"
 	"workspace-manager/internal/storage"
 )
@@ -20,20 +21,31 @@ type Result struct {
 }
 
 // Service separates inspection from explicit reviewed registration. It has no
-// execution dependency: none of its methods can start a project command.
+// project execution dependency. Only explicitly reviewed official scaffolding tools
+// and setup tools can run. Startup commands never execute here.
 type Service struct {
-	inspector     detection.Inspector
-	slots         chan struct{}
-	mu            sync.Mutex
-	paths         func() (storage.Paths, error)
-	resolvedPaths storage.Paths
-	registry      *storage.Repository[domain.Project]
-	operations    *os.Root
-	reviews       map[string]*pendingReview
-	now           func() time.Time
-	picker        func() (string, error)
-	pickerSlot    chan struct{}
-	closed        bool
+	inspector        detection.Inspector
+	slots            chan struct{}
+	mu               sync.Mutex
+	paths            func() (storage.Paths, error)
+	resolvedPaths    storage.Paths
+	registry         *storage.Repository[domain.Project]
+	operations       *os.Root
+	reviews          map[string]*pendingReview
+	creations        map[string]*pendingCreation
+	setups           map[string]*pendingSetup
+	recoveryReviews  map[string]*pendingRecoveryRegistration
+	now              func() time.Time
+	picker           func() (string, error)
+	pickerSlot       chan struct{}
+	closed           bool
+	scaffolder       func(context.Context, domain.CommandAction, string) ([]bootstrap.File, bootstrap.CommandResult, error)
+	preparationSlot  chan struct{}
+	setupRunner      func(context.Context, domain.CommandAction, string, *os.File) bootstrap.CommandResult
+	versionRunner    func(context.Context, domain.CommandAction, string) bootstrap.CommandResult
+	versionCancel    context.CancelFunc
+	logStart         func(context.Context, storage.Paths, domain.ID, SetupReview, time.Time) (setupLogWriter, error)
+	creationLogStart func(context.Context, storage.Paths, domain.CreationLog) (creationLogWriter, error)
 }
 
 type Option func(*Service)
@@ -43,7 +55,10 @@ func WithDirectoryPicker(picker func() (string, error)) Option {
 }
 
 func NewService(inspector detection.Inspector, options ...Option) *Service {
-	service := &Service{inspector: inspector, slots: make(chan struct{}, 2), paths: storage.ResolvePaths, now: time.Now, reviews: make(map[string]*pendingReview), pickerSlot: make(chan struct{}, 1)}
+	service := &Service{inspector: inspector, slots: make(chan struct{}, 2), paths: storage.ResolvePaths, now: time.Now, reviews: make(map[string]*pendingReview), pickerSlot: make(chan struct{}, 1), preparationSlot: make(chan struct{}, 1), scaffolder: bootstrap.PrepareScaffoldLogged, setupRunner: bootstrap.RunSetup, setups: make(map[string]*pendingSetup)}
+	service.versionRunner = bootstrap.RunVersion
+	service.logStart = startSetupLog
+	service.creationLogStart = startCreationLog
 	for _, option := range options {
 		option(service)
 	}

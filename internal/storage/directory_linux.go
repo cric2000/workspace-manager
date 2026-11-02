@@ -153,6 +153,38 @@ func lockDirectory(ctx context.Context, root *os.Root) (*os.File, error) {
 	}
 }
 
+var ErrLocked = errors.New("operation is owned by another live handle")
+
+// TryDirectoryLock returns a caller-owned lease or ErrLocked without waiting.
+// The lock inode must never be removed or replaced while the feature uses it.
+func TryDirectoryLock(root *os.Root) (*os.File, error) {
+	directory, err := privateDirectory(root)
+	if err != nil {
+		return nil, err
+	}
+	defer directory.Close()
+	fd, err := syscall.Openat(int(directory.Fd()), ".repository.lock", syscall.O_RDWR|syscall.O_CREAT|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0600)
+	if err != nil {
+		return nil, err
+	}
+	lock := os.NewFile(uintptr(fd), ".repository.lock")
+	info, err := lock.Stat()
+	if err == nil {
+		err = privateEntry(info, false)
+	}
+	if err == nil {
+		err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+	}
+	if err != nil {
+		lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, ErrLocked
+		}
+		return nil, err
+	}
+	return lock, nil
+}
+
 // WithDirectoryLock coordinates a feature operation spanning repositories.
 // Use a dedicated private directory, never a repository's own directory. All
 // participants must take this lock before repository locks; it is not reentrant.

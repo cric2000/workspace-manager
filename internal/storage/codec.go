@@ -29,7 +29,7 @@ var (
 // Record limits the codec to persistent domain values; runtime processes and
 // arbitrary environment maps cannot accidentally become supported record types.
 type Record interface {
-	domain.Workspace | domain.Project | domain.Session | domain.Settings
+	domain.Workspace | domain.Project | domain.Session | domain.Settings | domain.SetupLog | domain.CreationLog | domain.BootstrapRecovery
 	Validate() error
 }
 
@@ -142,6 +142,12 @@ func kindOf[T Record]() string {
 		return "session"
 	case domain.Settings:
 		return "settings"
+	case domain.SetupLog:
+		return "setup-log"
+	case domain.CreationLog:
+		return "creation-log"
+	case domain.BootstrapRecovery:
+		return "bootstrap-recovery"
 	default:
 		panic("Record constraint and kindOf must be updated together")
 	}

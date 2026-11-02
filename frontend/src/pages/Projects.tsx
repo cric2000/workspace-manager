@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { FolderSearch, Search } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { browseProjectDirectory, inspectProject, type Report } from '../services/projects'
+import { ProjectCreation } from '../components/ProjectCreation'
 import { ProjectRegistry } from '../components/ProjectRegistry'
+import { ProjectCreationHistory } from '../components/ProjectCreationHistory'
 
 export function Projects() {
+  const [creating, setCreating] = useState(false)
+  const [history, setHistory] = useState(false)
+  const [registryVersion, setRegistryVersion] = useState(0)
   const [path, setPath] = useState('')
   const [report, setReport] = useState<Report | null>(null)
   const [error, setError] = useState('')
@@ -49,7 +54,7 @@ export function Projects() {
   }
 
   return <>
-    <section className="workspace-heading" aria-labelledby="projects-title"><div><p className="eyebrow">UNDERSTAND YOUR CODEBASE</p><h1 id="projects-title">Projects</h1><p className="muted">Inspect a local directory and explore its startup choices.</p></div><FolderSearch size={26} className="muted" aria-hidden="true" /></section>
+    <section className="workspace-heading" aria-labelledby="projects-title"><div><p className="eyebrow">UNDERSTAND YOUR CODEBASE</p><h1 id="projects-title">Projects</h1><p className="muted">Inspect a local directory and explore its startup choices.</p></div><div className="project-command-actions"><button className="secondary-button" disabled={busy || choosing || creating || history} onClick={() => setHistory(true)}>Creation history</button><button className="primary-button" disabled={busy || choosing || history} onClick={() => setCreating(true)}><Plus size={17} aria-hidden="true" />New project</button></div></section>
     <form className="panel project-path-form" onSubmit={event => { event.preventDefault(); void inspect() }}>
       <label htmlFor="project-directory">Project directory<input id="project-directory" required placeholder="/home/you/projects/example" value={path} disabled={busy || choosing} onChange={event => { setPath(event.target.value); setReport(null); setSelected(null); setError(''); setNotice('') }} /></label>
       <div className="flex flex-wrap gap-2"><button className="secondary-button" type="button" disabled={busy || choosing} onClick={() => void browse()}>{choosing ? 'Choosing…' : 'Browse directories'}</button><button className="primary-button" type="submit" disabled={busy || choosing || !path}><Search size={15} aria-hidden="true" />{busy ? 'Inspecting…' : report ? 'Rescan directory' : 'Inspect directory'}</button>{busy && <button className="secondary-button" type="button" onClick={cancel}>Cancel inspection</button>}</div>
@@ -66,7 +71,9 @@ export function Projects() {
       </div>
       {!!report.tools?.length && <section aria-label="Required tools" className="panel"><h2>Required tools</h2><p className="muted text-xs">PATH presence only. Versions, plugins, environments and dependencies were not checked.</p><ul className="project-tools">{report.tools.map(tool => <li key={tool.name}><code>{tool.name}</code><span>{tool.available ? 'Found on PATH' : 'Not found on PATH'}</span></li>)}</ul></section>}
     </section>}
-    <ProjectRegistry report={report} candidate={candidate} />
-    <aside className="scope-note"><h2>Inspect first. Review before saving.</h2><p>Inspection leaves saved configurations alone. Rescan a registered project to compare suggestions and explicitly choose a change for review. Readiness checks, editor and stop actions are saved configuration; execution will be added later. Saving runs nothing. Workspace association follows in a later unit.</p></aside>
+    <ProjectRegistry key={registryVersion} report={report} candidate={candidate} />
+    {history && <ProjectCreationHistory onClose={() => setHistory(false)} onRestored={() => setRegistryVersion(value => value + 1)} />}
+    {creating && <ProjectCreation onClose={() => setCreating(false)} onCreated={result => { setCreating(false); setRegistryVersion(value => value + 1); setPath(result.path); setReport(null); setSelected(null); setError(result.code ? result.message : ''); setNotice(result.registered ? 'Project created and registered. Review its startup command before execution.' : 'Project files created. Check the result and inspect the directory if registration is needed.') }} />}
+    <aside className="scope-note"><h2>Inspect first. Review before saving.</h2><p>Inspection leaves saved configurations alone. Rescan a registered project to compare suggestions and explicitly choose a change for review. Readiness checks, editor and stop actions are saved configuration; execution will be added later. Saving runs nothing. Associate saved projects from Workspaces.</p></aside>
   </>
 }
