@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -73,24 +72,21 @@ func LifecycleHooks() lifecycle.Hooks {
 			return &entry
 		},
 		LaunchApplication: func(ctx context.Context, app domain.WorkspaceApplication) error {
-			busName := ""
-			if app.Custom != nil {
-				busName = app.Custom.InstanceBusName
-			} else {
-				entry, err := catalog.Lookup(ctx, string(app.DesktopID))
-				if err != nil {
-					return err
-				}
-				if entry.DBusActivatable {
-					busName = strings.TrimSuffix(entry.ID, ".desktop")
-				}
-			}
 			if app.DuplicatePolicy == domain.SkipIfRunning {
-				state := instances.Check(ctx, busName)
-				if state.State == "running" {
+				var status applications.InstanceStatus
+				if app.Custom != nil {
+					status = instances.Check(ctx, app.Custom.InstanceBusName)
+				} else {
+					entry, err := catalog.Lookup(ctx, string(app.DesktopID))
+					if err != nil {
+						return err
+					}
+					status = instances.CheckDesktop(ctx, entry)
+				}
+				if status.State == "running" {
 					return nil
 				}
-				if state.State != "not_running" {
+				if status.State != "not_running" {
 					return errors.New("application instance identity cannot be confirmed")
 				}
 			}
@@ -107,40 +103,7 @@ func LifecycleHooks() lifecycle.Hooks {
 			}
 			return catalog.Launch(ctx, spec)
 		},
-		RecognizedApplications: func(ctx context.Context) ([]domain.WorkspaceApplication, []string) {
-			warnings := []string{"GNOME Wayland does not expose arbitrary window enumeration. Only supported session D-Bus application identities and known launch metadata are captured; other open applications may be missing."}
-			bus, err := dbus.ConnectSessionBus()
-			if err != nil {
-				return nil, warnings
-			}
-			defer bus.Close()
-			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-			defer cancel()
-			var names []string
-			if err := bus.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.ListNames", 0).Store(&names); err != nil {
-				return nil, warnings
-			}
-			known := map[string]bool{}
-			for _, name := range names {
-				known[name] = true
-			}
-			entries, err := catalog.Discover(ctx)
-			if err != nil {
-				return nil, warnings
-			}
-			var result []domain.WorkspaceApplication
-			for _, entry := range entries {
-				if len(result) >= 64 {
-					warnings = append(warnings, "Application capture reached its 64 application limit.")
-					break
-				}
-				name := strings.TrimSuffix(entry.ID, ".desktop")
-				if entry.Visible && entry.DBusActivatable && domain.ValidBusName(name) && known[name] {
-					result = append(result, domain.WorkspaceApplication{DesktopID: domain.DesktopID(entry.ID), DuplicatePolicy: domain.SkipIfRunning})
-				}
-			}
-			return result, warnings
-		},
+		RecognizedApplications: recognizedDesktopApplications,
 		OpenURL: func(ctx context.Context, value string) error {
 			if domain.ValidateWebURL(value) != nil {
 				return errors.New("invalid preview URL")

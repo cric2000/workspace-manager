@@ -223,6 +223,7 @@ func TestShutdownSnapshotFailureCancellationAndMockHandoff(t *testing.T) {
 	for _, mode := range []string{"save", "without_save", "save_failure", "cancel", "denied"} {
 		t.Run(mode, func(t *testing.T) {
 			c, calls := fixtureController(t)
+			c.activeApplications = []domain.WorkspaceApplication{{DesktopID: "org.example.Fixture.desktop", DuplicatePolicy: domain.SkipIfRunning}}
 			review := c.Handle(testContext, Request{Action: "review_shutdown"})
 			if review.Plan == nil || calls.Load() != 0 {
 				t.Fatal(review)
@@ -599,5 +600,115 @@ func TestHybridDeduplicatesReimportedDirectory(t *testing.T) {
 	plan, err := c.buildPlan(testContext, Request{Action: "review_login", Settings: &settings})
 	if err != nil || len(plan.Projects) != 1 || len(plan.Tasks) != 2 || len(plan.Warnings) == 0 {
 		t.Fatal(plan, err)
+	}
+}
+
+func TestEmptyRestoreDoesNotReplaceKnownWorkspace(t *testing.T) {
+	c, calls := fixtureController(t)
+	saved := c.Handle(testContext, Request{Action: "capture", Name: "Empty"})
+	if saved.Session == nil || !strings.Contains(saved.Message, "no applications") {
+		t.Fatal(saved)
+	}
+	c.runtime.ActiveWorkspaceID = testID('e')
+	c.activeApplications = []domain.WorkspaceApplication{{DesktopID: "org.example.Keep.desktop", DuplicatePolicy: domain.SkipIfRunning}}
+	review := c.Handle(testContext, Request{Action: "review_session", ID: saved.Session.Value.ID})
+	if review.Plan == nil {
+		t.Fatal(review)
+	}
+	result := c.Handle(testContext, Request{Action: "commit", Token: review.Plan.Token, SwitchPolicy: "keep"})
+	if result.Code == "" || !strings.Contains(result.Message, "Nothing can") || calls.Load() != 0 || c.runtime.ActiveWorkspaceID != testID('e') || len(c.activeApplications) != 1 {
+		t.Fatal(result, c.runtime, calls.Load())
+	}
+}
+
+func TestEmptyCaptureCannotProceedToSaveAndShutdown(t *testing.T) {
+	c, calls := fixtureController(t)
+	review := c.Handle(testContext, Request{Action: "review_shutdown"})
+	result := c.Handle(testContext, Request{Action: "commit", Token: review.Plan.Token, Save: true})
+	sessions, err := c.sessions.List(testContext)
+	if err != nil || result.Code == "" || !strings.Contains(result.Message, "No applications") || calls.Load() != 0 || len(sessions) != 0 {
+		t.Fatal(result, sessions, err, calls.Load())
+	}
+}
+
+func TestRecognizedDesktopApplicationsAreSavedAndRestored(t *testing.T) {
+	c, calls := fixtureController(t)
+	c.hooks.RecognizedApplications = func(context.Context) ([]domain.WorkspaceApplication, []string) {
+		return []domain.WorkspaceApplication{{DesktopID: "org.example.NonDBus.desktop", DuplicatePolicy: domain.SkipIfRunning}}, nil
+	}
+	saved := c.Handle(testContext, Request{Action: "capture", Name: "Desktop"})
+	if saved.Session == nil || len(saved.Session.Value.Applications) != 1 {
+		t.Fatal(saved)
+	}
+	review := c.Handle(testContext, Request{Action: "review_session", ID: saved.Session.Value.ID})
+	if review.Plan == nil || len(review.Plan.Tasks) != 1 {
+		t.Fatal(review)
+	}
+	if result := c.Handle(testContext, Request{Action: "commit", Token: review.Plan.Token, SwitchPolicy: "keep"}); result.Code != "" {
+		t.Fatal(result)
+	}
+	await(t, func() bool { c.mu.Lock(); defer c.mu.Unlock(); return !c.runtime.Busy })
+	if calls.Load() != 1 {
+		t.Fatal("saved desktop application was not restored", calls.Load())
+	}
+}
+
+func TestLoginActuallyDispatchesEachModeAcrossControllerRestart(t *testing.T) {
+	for _, mode := range []domain.StartupMode{domain.StartupFixed, domain.StartupRestore, domain.StartupHybrid} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Setenv("XDG_SESSION_ID", "owned-login-one")
+			c, calls := fixtureController(t)
+			now := time.Now().UTC()
+			app := domain.WorkspaceApplication{DesktopID: "org.example.NonDBus.desktop", DuplicatePolicy: domain.SkipIfRunning}
+			workspace := domain.Workspace{ID: testID('d'), Name: "Coding", Applications: []domain.WorkspaceApplication{app}, CreatedAt: now, UpdatedAt: now}
+			if err := c.profiles.Create(testContext, workspace); err != nil {
+				t.Fatal(err)
+			}
+			c.activeApplications = []domain.WorkspaceApplication{app}
+			saved := c.Handle(testContext, Request{Action: "capture", Name: "Desktop"})
+			settings, err := c.getSettings(testContext)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := settings.Value
+			value.Autostart = true
+			value.StartupMode = mode
+			value.DefaultWorkspaceID = workspace.ID
+			value.RestoreSessionID = saved.Session.Value.ID
+			review := c.Handle(testContext, Request{Action: "review_login", Settings: &value, Revision: settings.Revision})
+			if review.Plan == nil {
+				t.Fatal(review)
+			}
+			if result := c.Handle(testContext, Request{Action: "commit", Token: review.Plan.Token}); result.Code != "" {
+				t.Fatal(result)
+			}
+			if calls.Load() != 0 {
+				t.Fatal("enabling startup launched applications")
+			}
+			hooks, paths, executable := c.hooks, c.paths, c.executable
+			c.Close()
+			next, err := NewController(paths, hooks, executable)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer next.Close()
+			for i := 0; i < 2; i++ {
+				if result := next.Handle(testContext, Request{Action: "login"}); result.Code != "" {
+					t.Fatal(result)
+				}
+				await(t, func() bool { next.mu.Lock(); defer next.mu.Unlock(); return !next.runtime.Busy })
+			}
+			if calls.Load() != 1 {
+				t.Fatal("login failed or replayed", calls.Load())
+			}
+			t.Setenv("XDG_SESSION_ID", "owned-login-two")
+			if result := next.Handle(testContext, Request{Action: "login"}); result.Code != "" {
+				t.Fatal(result)
+			}
+			await(t, func() bool { next.mu.Lock(); defer next.mu.Unlock(); return !next.runtime.Busy })
+			if calls.Load() != 2 {
+				t.Fatal("next desktop login was not dispatched", calls.Load())
+			}
+		})
 	}
 }

@@ -19,6 +19,11 @@ func (c *Controller) beginShutdown(ctx context.Context, held *heldPlan, req Requ
 			name = "Before shutdown · " + time.Now().Format("2006-01-02 15:04")
 		}
 		snapshot, err := c.capture(ctx, name, c.runtime.SessionOrigin)
+		if err == nil && !hasSessionMetadata(snapshot) {
+			c.runtime.ShutdownState = "failed"
+			held.result = failure("No applications, projects or URLs could be captured. Nothing was stopped and shutdown was not requested. Launch a workspace and save again, or explicitly choose Shutdown without saving.")
+			return held.result
+		}
 		if err == nil {
 			err = c.persistSnapshot(ctx, snapshot)
 		}

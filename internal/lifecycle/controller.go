@@ -208,7 +208,11 @@ func (c *Controller) Handle(ctx context.Context, req Request) Response {
 	case "reconcile_run":
 		return c.reconcileRun(ctx, req)
 	case "login":
-		return c.login(ctx)
+		result := c.login(ctx)
+		if result.Code != "" {
+			c.runtime.Message = result.Message
+		}
+		return result
 	default:
 		return failure("Unknown controller operation.")
 	}
@@ -570,6 +574,9 @@ func (c *Controller) commit(ctx context.Context, req Request) Response {
 	}
 	if held.plan.Kind == "review_shutdown" {
 		return c.beginShutdown(ctx, held, req)
+	}
+	if len(held.plan.Tasks) == 0 {
+		return failure("Nothing can be restored or launched from this configuration. This snapshot contains no launch actions; capture a new session after launching a workspace or supported desktop applications.")
 	}
 	if req.SwitchPolicy == "cancel" {
 		return Response{Code: "cancelled", Message: "Workspace switch cancelled."}

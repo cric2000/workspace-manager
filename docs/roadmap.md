@@ -36,7 +36,7 @@ those gates are verified.
 
 ## Practical limits
 
-- Sessions capture known launch metadata plus supported session D-Bus application
+- Sessions capture known launch metadata plus supported desktop-scope and session D-Bus application
   identities. Unsupported external apps need explicit desktop/custom configuration.
 - A review approves configuration, not mutable source. Restores never install dependencies.
 - Unknown worker/descendant ownership blocks automatic retry and signalling.

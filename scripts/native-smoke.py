@@ -224,12 +224,16 @@ def main():
     parser.add_argument("--setup-only", action="store_true", help="Run reviewed Git/npm/venv setup on temporary generated projects; downloads Node dependencies")
     parser.add_argument("--recovery-only", action="store_true", help="Run isolated interrupted publication recovery and guarded registration restoration")
     parser.add_argument("--lifecycle-only", action="store_true", help="Run an owned managed server, controller crash/reconnect, snapshot branching and shutdown cancellation; never power off")
+    parser.add_argument("--login-only", action="store_true", help="Verify cold-controller login and session restore for all startup modes using only an owned non-D-Bus desktop helper")
     parser.add_argument("--ui-only", action="store_true", help="Check global creation, quick actions, suggested session names, themes and responsive navigation")
     parser.add_argument("--screenshots", action="store_true", help="Capture actual native lifecycle UI into docs/screenshots")
     arguments = parser.parse_args()
     CAPTURE_SCREENSHOTS = arguments.screenshots
     with fixture_directory() as directory:
         temporary = Path(directory)
+        if arguments.login_only:
+            check_login(temporary)
+            return
         if arguments.ui_only:
             check_ui(temporary)
             return
@@ -1337,6 +1341,68 @@ def check_recovery(temporary):
         assert not registration.exists() and (target / 'main.go').read_bytes() == edited
         app.close()
     print('PASS: native restart reconciliation, fresh/cancellable registration review, original ID/configuration restored unapproved, unchanged source/history, missing-registration refresh and refusal after source edits; no commands retried.')
+
+
+def check_login(temporary):
+    for mode in ['fixed', 'restore', 'hybrid']:
+        root = temporary / mode
+        root.mkdir(mode=0o700)
+        env = dict(os.environ, XDG_CONFIG_HOME=str(root/'config'), XDG_STATE_HOME=str(root/'state'),
+                   XDG_CACHE_HOME=str(root/'cache'), XDG_DATA_HOME=str(root/'data'))
+        now = '2026-11-03T00:00:00Z'
+        workspace_id, session_id = 'a'*32, 'b'*32
+        desktop_id = 'org.example.WorkspaceOwnedLogin.desktop'
+        captured = root/'handoffs'
+        helper = root/'owned-login.py'
+        helper.write_text('import pathlib, sys\nwith pathlib.Path(sys.argv[1]).open("a") as output: output.write("handoff\\n")\n')
+        apps = root/'data/applications'
+        apps.mkdir(parents=True)
+        (apps/desktop_id).write_text('[Desktop Entry]\nType=Application\nName=Owned login fixture\nExec=/usr/bin/python3 '+str(helper)+' '+str(captured)+'\nTerminal=false\n')
+        choice = dict(desktopId=desktop_id, duplicatePolicy='skip_if_running')
+        workspace = dict(id=workspace_id, name='Owned login', description='', projectIds=[], applications=[choice], createdAt=now, updatedAt=now)
+        session = dict(id=session_id, name='Owned restore', workspaceId=workspace_id, capturedAt=now, projects=[], applications=[choice], captureWarnings=[])
+        for directory, identifier, kind, value in [(root/'config/workspace-manager/profiles',workspace_id,'workspace',workspace), (root/'state/workspace-manager/sessions',session_id,'session',session)]:
+            directory.mkdir(parents=True, mode=0o700)
+            record = directory/(identifier+'.json')
+            record.write_text(json.dumps(dict(schemaVersion=4, kind=kind, data=value)))
+            record.chmod(0o600)
+        for directory in root.rglob('*'):
+            if directory.is_dir():
+                directory.chmod(0o700)
+        binary = str(ROOT/'bin/workspace-manager-smoke')
+        try:
+            result = subprocess.run([binary, '--status'], env=env, capture_output=True, text=True, timeout=15)
+            assert result.returncode == 0, result.stderr
+            state = json.loads(result.stdout)
+            settings = dict(state['settings'], autostart=True, startupMode=mode, defaultWorkspaceId=workspace_id, restoreSessionId=session_id)
+            review = controller_rpc(root, dict(action='review_login', settings=settings, revision=state['settingsRevision']))
+            assert not review['code'] and len(review['plan']['tasks']) == 1, review
+            assert review['plan']['tasks'][0]['application']['desktopId'] == desktop_id
+            enabled = controller_rpc(root, dict(action='commit', token=review['plan']['token']))
+            assert not enabled['code'] and not captured.exists(), enabled
+            subprocess.run([binary, '--stop-controller'], env=env, check=True, capture_output=True, timeout=15)
+            deadline = time.monotonic()+8
+            while (root/'state/workspace-manager/runtime/controller/control.sock').exists() and time.monotonic()<deadline:
+                time.sleep(.05)
+            for attempt in range(2):
+                subprocess.run([binary, '--login'], env=env, check=True, capture_output=True, timeout=15)
+                deadline = time.monotonic()+10
+                while time.monotonic()<deadline:
+                    if captured.exists() and not controller_rpc(root,dict(action='state'))['runtime']['busy']:
+                        break
+                    time.sleep(.05)
+                assert captured.read_text() == 'handoff\n', 'login failed or replayed: '+mode
+            review = controller_rpc(root,dict(action='review_session',id=session_id))
+            assert len(review['plan']['tasks']) == 1 and review['plan']['tasks'][0]['application']['desktopId'] == desktop_id
+            restored = controller_rpc(root,dict(action='commit',token=review['plan']['token'],switchPolicy='keep'))
+            assert not restored['code'],restored
+            deadline = time.monotonic()+10
+            while time.monotonic()<deadline and captured.read_text() != 'handoff\nhandoff\n':
+                time.sleep(.05)
+            assert captured.read_text() == 'handoff\nhandoff\n', mode+' restore did not launch its captured desktop application'
+        finally:
+            subprocess.run([binary, '--stop-controller'],env=env,capture_output=True,timeout=15)
+        print('PASS: '+mode+' native login after controller restart, non-D-Bus desktop handoff, replay prevention and session restore; only the owned helper ran.')
 
 
 def check_ui(temporary):

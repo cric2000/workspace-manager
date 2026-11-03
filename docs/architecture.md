@@ -165,11 +165,18 @@ are reused rather than duplicated, including identical commands re-registered wi
 new IDs. Hybrid plans deduplicate canonical project directories before task creation.
 
 Session capture stores known launch metadata, managed project snapshots and
-supported external session D-Bus identities. It reports Wayland capture gaps;
+supported external session D-Bus identities and active GNOME/Flatpak/Snap desktop
+application scopes. Scope matching uses complete desktop IDs or GIO-parsed Snap
+identities, never process names or command lines. The manager excludes itself.
+Desktop scope absence is a point-in-time observation; apps started outside the
+desktop may be missed. Unavailable observation remains unknown. It reports Wayland capture gaps;
 unsaved documents, arbitrary tabs, terminal history and raw environment values are
 not captured. Branches have independent IDs and a stable parent. Rename/update,
 revision restore and deletion are explicit; ancestry and selected restore targets
-are protected. Capture is persisted and read back before reporting success.
+are protected. Capture is persisted and read back before reporting success. Empty
+snapshots report that nothing can be restored; empty restore plans cannot replace
+known launch metadata. Save and Shutdown refuses an empty capture before stopping
+services or requesting shutdown.
 
 Fixed login launches a workspace; restore uses the selected snapshot; hybrid merges
 both by stable task identity. A persisted fingerprint authorizes only the reviewed

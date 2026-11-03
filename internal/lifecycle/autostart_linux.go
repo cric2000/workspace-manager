@@ -136,6 +136,9 @@ func (c *Controller) enableLogin(ctx context.Context, held *heldPlan) Response {
 	if settings == nil || !settings.Autostart {
 		return failure("Enable login startup in Settings and review it again.")
 	}
+	if len(held.plan.Tasks) == 0 {
+		return failure("Login startup has no launch actions. Add applications or approved projects to the selected workspace, then review again.")
+	}
 	for _, task := range held.plan.Tasks {
 		if task.Blocked != "" {
 			return failure("Login startup cannot be enabled while its review has unavailable or unapproved tasks.")
@@ -177,6 +180,9 @@ func (c *Controller) enableLogin(ctx context.Context, held *heldPlan) Response {
 	return held.result
 }
 func (c *Controller) login(ctx context.Context) Response {
+	if c.runtime.Busy {
+		return failure("Login startup could not run while another operation was active. No login dispatch was recorded.")
+	}
 	settings, err := c.getSettings(ctx)
 	if err != nil {
 		return failure("Login settings are unavailable.")
@@ -227,7 +233,10 @@ func (c *Controller) login(ctx context.Context) Response {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if !c.closed {
-			c.commit(context.Background(), Request{Token: token, SwitchPolicy: "keep"})
+			result := c.commit(context.Background(), Request{Token: token, SwitchPolicy: "keep"})
+			if result.Code != "" {
+				c.runtime.Message = result.Message
+			}
 		}
 	}()
 	return Response{Message: "Reviewed login startup scheduled after its configured delay."}

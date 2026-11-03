@@ -61,3 +61,10 @@ describe('reviewed project execution', () => {
     await waitFor(() => expect(mocked).toHaveBeenCalledWith(expect.objectContaining({ action: 'commit', save: false })))
   })
 })
+
+it('explains an empty restore and does not allow a misleading successful launch', () => {
+  render(<LaunchReview plan={{ ...plan, kind: 'review_session', tasks: [] } as Plan} onClose={vi.fn()} onAccepted={vi.fn()} />)
+  expect(screen.getByRole('status')).toHaveTextContent('Nothing to launch or restore')
+  expect(screen.getByRole('button', { name: 'Launch reviewed tasks' })).toBeDisabled()
+  expect(mocked).not.toHaveBeenCalled()
+})

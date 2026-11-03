@@ -60,11 +60,18 @@ func (c *Controller) capture(ctx context.Context, name string, parent domain.ID)
 			}
 		}
 	}
+	if !hasSessionMetadata(session) {
+		session.CaptureWarnings = append(session.CaptureWarnings, "No applications, projects or URLs were captured. This snapshot has nothing to restore. Launch a workspace or supported desktop applications before capturing again.")
+	}
 	if err := session.Validate(); err != nil {
 		return session, err
 	}
 	return session, nil
 }
+func hasSessionMetadata(s domain.Session) bool {
+	return len(s.Projects) > 0 || len(s.Applications) > 0 || len(s.URLs) > 0
+}
+
 func applicationKey(app domain.WorkspaceApplication) string {
 	if app.Custom != nil {
 		return "custom:" + string(app.Custom.ID)
@@ -104,7 +111,11 @@ func (c *Controller) sessionAction(ctx context.Context, req Request) Response {
 			return failure("Snapshot could not be saved and verified. Existing snapshots are preserved; reload before retrying.")
 		}
 		saved, _ := c.sessions.Get(ctx, session.ID)
-		return Response{Message: "Session saved and verified.", Session: &SessionView{saved.Value, saved.Revision}}
+		message := "Session saved and verified."
+		if !hasSessionMetadata(session) {
+			message = "Snapshot saved, but it contains no applications, projects or URLs to restore. Launch a workspace or supported desktop applications and capture again."
+		}
+		return Response{Message: message, Session: &SessionView{saved.Value, saved.Revision}}
 	case "branch":
 		old, err := c.sessions.Get(ctx, req.ID)
 		if err != nil {

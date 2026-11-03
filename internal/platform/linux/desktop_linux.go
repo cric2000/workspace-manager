@@ -263,3 +263,24 @@ func desktopEntry(info *C.GDesktopAppInfo) (applications.DesktopEntry, bool) {
 	}
 	return entry, true
 }
+
+// Read sandbox identities through GIO's desktop parser; filenames and executable
+// names are insufficient to distinguish Snap apps and parallel instances.
+func desktopSnapIdentity(ctx context.Context, id string) (string, string) {
+	var instance, app string
+	_ = withDesktopInfo(ctx, id, func(info *C.GDesktopAppInfo, _ applications.DesktopEntry) error {
+		get := func(key string) string {
+			field := C.CString(key)
+			defer C.free(unsafe.Pointer(field))
+			value := C.g_desktop_app_info_get_string(info, field)
+			if value == nil {
+				return ""
+			}
+			defer C.g_free(C.gpointer(value))
+			return C.GoString(value)
+		}
+		instance, app = get("X-SnapInstanceName"), get("X-SnapAppName")
+		return nil
+	})
+	return instance, app
+}

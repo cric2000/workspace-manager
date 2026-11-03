@@ -71,6 +71,7 @@ state; `--stop-controller` disconnects the controller while preserving workers.
 
 Native fixture checks: build with `go build -tags production,mcp -o bin/workspace-manager-smoke .`,
 then run `python3 scripts/native-smoke.py --lifecycle-only` in a graphical session.
+Use `--login-only` to check all startup modes and desktop session restore.
 These use owned fixtures and never power off. Production builds have no MCP endpoint.
 Add `--screenshots` to refresh the native screenshots. Run `python3 scripts/check-package.py`
 after packaging to verify isolated unpack/removal and the production CLI.
