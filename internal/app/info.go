@@ -6,7 +6,7 @@ import (
 	"runtime"
 )
 
-const Version = "0.1.0-dev"
+const Version = "1.0.0"
 
 // Info is an allowlist of non-sensitive diagnostics, not an environment dump.
 type Info struct {

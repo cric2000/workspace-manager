@@ -15,6 +15,9 @@ no MCP endpoint. No project commands run here; application tests use owned helpe
 """
 
 import argparse
+import base64
+import contextlib
+import hashlib
 import http.client
 import json
 import os
@@ -22,6 +25,8 @@ from pathlib import Path
 import secrets
 import shlex
 import socket
+import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -30,6 +35,32 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CAPTURE_SCREENSHOTS = False
+
+def controller_rpc(temporary, request):
+    directory = temporary / 'state/workspace-manager/runtime/controller'
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with socket.socket(socket.AF_UNIX) as connection:
+            connection.settimeout(20)
+            connection.connect(f'/proc/self/fd/{descriptor}/control.sock')
+            connection.sendall(json.dumps(request).encode() + b'\n')
+            connection.shutdown(socket.SHUT_WR)
+            with connection.makefile('r') as response:
+                return json.load(response)
+    finally:
+        os.close(descriptor)
+
+@contextlib.contextmanager
+def fixture_directory():
+    with tempfile.TemporaryDirectory(prefix='workspace-native-check-') as directory:
+        try:
+            yield directory
+        finally:
+            try:
+                controller_rpc(Path(directory), {'action': 'stop_controller'})
+            except (OSError, ValueError):
+                pass
 
 
 class Native:
@@ -66,6 +97,8 @@ class Native:
                 raise RuntimeError("No native test endpoint: " + self.log_path.read_text())
             self.rpc("initialize", dict(protocolVersion="2025-06-18", capabilities={},
                                         clientInfo={"name": "workspace-smoke", "version": "1"}))
+            self.until("document.querySelector('[data-page=workspaces]')")
+            self.click('[data-page=workspaces]')
             self.until("document.querySelector('[data-new-workspace]')?.disabled === false")
             return self
         except BaseException:
@@ -93,8 +126,8 @@ class Native:
             raise RuntimeError(str(result["error"]))
         return result["result"]
 
-    def tool(self, name, **arguments):
-        result = self.rpc("tools/call", dict(name=name, arguments=arguments))
+    def tool(self, tool_name, **arguments):
+        result = self.rpc("tools/call", dict(name=tool_name, arguments=arguments))
         if result.get("isError"):
             raise RuntimeError(str(result))
         text = result["content"][0]["text"]
@@ -162,6 +195,13 @@ class Native:
         if metrics['dialog']:
             assert metrics['dialog']['scroll'] <= metrics['dialog']['client'] + 1, metrics
 
+    def screenshot(self, name):
+        if CAPTURE_SCREENSHOTS:
+            encoded = self.tool("call_bound_method", name="main.ScreenshotService.Capture", args=[])
+            output = ROOT / "docs/screenshots" / (name + ".png")
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(base64.b64decode(encoded))
+
     def close(self):
         try:
             self.tool("window_control", action="close")
@@ -171,8 +211,10 @@ class Native:
 
 
 def main():
+    global CAPTURE_SCREENSHOTS
     sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser()
+    parser.add_argument("--profiles-only", action="store_true", help="Run workspace and desktop/custom application regression checks only")
     parser.add_argument("--projects-only", action="store_true", help="Run the isolated project inspection/settings workflow")
     parser.add_argument("--creation-only", action="store_true", help="Run all five isolated starter creation workflows (Next.js downloads its pinned scaffolder)")
     parser.add_argument("--node-creation-only", action="store_true", help="Run the isolated Node.js + TypeScript creation workflow")
@@ -181,9 +223,19 @@ def main():
     parser.add_argument("--next-creation-only", action="store_true", help="Run Next.js command approval, official preparation and final publication; downloads create-next-app")
     parser.add_argument("--setup-only", action="store_true", help="Run reviewed Git/npm/venv setup on temporary generated projects; downloads Node dependencies")
     parser.add_argument("--recovery-only", action="store_true", help="Run isolated interrupted publication recovery and guarded registration restoration")
+    parser.add_argument("--lifecycle-only", action="store_true", help="Run an owned managed server, controller crash/reconnect, snapshot branching and shutdown cancellation; never power off")
+    parser.add_argument("--ui-only", action="store_true", help="Check global creation, quick actions, suggested session names, themes and responsive navigation")
+    parser.add_argument("--screenshots", action="store_true", help="Capture actual native lifecycle UI into docs/screenshots")
     arguments = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="workspace-native-check-") as directory:
+    CAPTURE_SCREENSHOTS = arguments.screenshots
+    with fixture_directory() as directory:
         temporary = Path(directory)
+        if arguments.ui_only:
+            check_ui(temporary)
+            return
+        if arguments.lifecycle_only:
+            check_lifecycle(temporary)
+            return
         if arguments.recovery_only:
             check_recovery(temporary)
             return
@@ -356,7 +408,7 @@ def main():
         ]
         assert records["Backend"]["applications"] == expected_applications
         assert records["Learning"]["applications"] == expected_applications
-        assert all(json.loads(path.read_text())["schemaVersion"] == 3 for path in profiles.glob("*.json"))
+        assert all(json.loads(path.read_text())["schemaVersion"] == 4 for path in profiles.glob("*.json"))
         settings = json.loads((temporary / "config/workspace-manager/settings.json").read_text())["data"]
         assert settings["defaultWorkspaceId"] == records["Backend"]["id"]
         assert not settings["autostart"]
@@ -435,6 +487,8 @@ def main():
         print('PASS: custom executable configuration persists/reopens, unknown-instance skip blocks dispatch, explicit review launches with literal and empty argv.')
         print("PASS: application order/preferences persist, duplicate independently and retain unavailable references through save/reopen; picker fits a narrow CSS viewport.")
         print("PASS: close/reopen preserves profiles, stable identities and default; confirmed deletion removes only selected metadata and restores focus.")
+        if arguments.profiles_only:
+            return
         check_projects(temporary)
         check_creation(temporary)
         check_node_creation(temporary)
@@ -1283,6 +1337,181 @@ def check_recovery(temporary):
         assert not registration.exists() and (target / 'main.go').read_bytes() == edited
         app.close()
     print('PASS: native restart reconciliation, fresh/cancellable registration review, original ID/configuration restored unapproved, unchanged source/history, missing-registration refresh and refusal after source edits; no commands retried.')
+
+
+def check_ui(temporary):
+    with Native(temporary) as app:
+        app.click('[data-page=dashboard]')
+        app.until("document.querySelector('.runtime-overview')")
+        app.until("document.querySelector('.app-brand img').complete && document.querySelector('.app-brand img').naturalWidth > 0")
+        app.assert_layout()
+        app.click('[aria-label="Create workspace"]')
+        app.until("document.querySelector('dialog')?.textContent.includes('New workspace')")
+        app.until("document.activeElement?.id === 'workspace-name'")
+        app.click('dialog [aria-label="Close dialog"]')
+        app.until("!document.querySelector('dialog')")
+        app.click('[aria-label="Quick actions"]')
+        app.until("document.activeElement?.getAttribute('aria-label') === 'Search actions'")
+        app.fill('[aria-label="Search actions"]', 'create project')
+        app.click('.command-action')
+        app.until("document.querySelector('dialog')?.textContent.includes('New project')")
+        app.until("document.querySelector('#creation-name')?.disabled === false")
+        app.click('dialog [aria-label="Close dialog"]')
+        app.until("!document.querySelector('dialog')")
+        app.click('[aria-label="Save session"]')
+        app.until("document.querySelector('dialog input')?.value.startsWith('Session · ')")
+        assert not controller_rpc(temporary, {'action': 'state'}).get('sessions')
+        app.submit()
+        app.until("!document.querySelector('dialog')")
+        assert len(controller_rpc(temporary, {'action': 'state'})['sessions']) == 1
+        for page in ['dashboard', 'workspaces', 'projects', 'applications', 'sessions', 'activity', 'settings', 'diagnostics']:
+            app.click('[data-page=' + page + ']')
+            app.until("document.querySelector('main h1')")
+            app.assert_layout()
+        app.click('[data-page=dashboard]')
+        app.until("document.querySelector('.runtime-overview')")
+        app.js("localStorage.setItem('workspace-manager-appearance', 'light'); window.dispatchEvent(new Event('workspace-manager-appearance')); return true;")
+        app.until("document.documentElement.dataset.theme === 'light'")
+        app.assert_layout()
+        encoded = app.tool('call_bound_method', name='main.ScreenshotService.Capture', args=[])
+        Path('/tmp/workspace-manager-light.png').write_bytes(base64.b64decode(encoded))
+        app.narrow_viewport()
+        for page in ['dashboard', 'workspaces', 'projects', 'applications', 'sessions', 'activity', 'settings', 'diagnostics']:
+            app.click('[data-page=' + page + ']')
+            app.until("document.querySelector('main h1')")
+            app.assert_layout()
+        app.click('[aria-label="Create workspace"]')
+        app.until("document.querySelector('dialog')?.textContent.includes('New workspace')")
+        app.assert_layout()
+        encoded = app.tool('call_bound_method', name='main.ScreenshotService.Capture', args=[])
+        Path('/tmp/workspace-manager-narrow.png').write_bytes(base64.b64decode(encoded))
+        app.click('dialog [aria-label="Close dialog"]')
+        app.close()
+    print('PASS: native global creation, palette search/focus, suggested session capture with explicit save, all eight pages and narrow layouts, light theme and app icon.')
+
+
+def check_lifecycle(temporary):
+    project_id, command_id = 'a' * 32, 'b' * 32
+    source = temporary / 'owned-server'
+    source.mkdir()
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1', 0))
+        port = probe.getsockname()[1]
+    helper = source / 'owned_server.py'
+    helper.write_text('from http.server import HTTPServer, BaseHTTPRequestHandler\nimport sys\nclass Handler(BaseHTTPRequestHandler):\n def do_GET(self):\n  self.send_response(200); self.end_headers(); self.wfile.write(b"owned-fixture")\nprint("owned-worker-ready", flush=True)\nHTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()\n')
+    configuration = dict(name='Owned server', executable=str(Path('/usr/bin/python3').resolve()),
+                         arguments=['-u', str(helper), str(port)], workingDirectory=str(source),
+                         runtime=dict(readiness=dict(kind='http', url=f'http://127.0.0.1:{port}/health', expectedStatus=200, timeoutSeconds=10, intervalSeconds=1), stop=dict(signal='SIGTERM', graceSeconds=3)))
+    # Go's fingerprint normalizes empty slices; this fixture has only literal,
+    # nonempty argv and no optional zero-valued runtime fields.
+    fingerprint = hashlib.sha256(json.dumps(configuration, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+    now = '2026-11-03T00:00:00Z'
+    project = dict(id=project_id, name='Owned server', path=str(source), source='imported',
+                   commands=[dict(id=command_id, configuration=configuration, approval=dict(fingerprint=fingerprint, approvedAt=now))], createdAt=now, updatedAt=now)
+    registry = temporary / 'config/workspace-manager/projects'
+    registry.mkdir(parents=True, mode=0o700)
+    (temporary / 'config/workspace-manager').chmod(0o700)
+    record = registry / f'{project_id}.json'
+    record.write_text(json.dumps(dict(schemaVersion=3, kind='project', data=project)))
+    record.chmod(0o600)
+    workspace_id = 'c' * 32
+    profiles = temporary / 'config/workspace-manager/profiles'
+    profiles.mkdir(mode=0o700)
+    profile = dict(id=workspace_id, name='Coding', description='A local development workspace', projectIds=[project_id], applications=[], createdAt=now, updatedAt=now)
+    profile_file = profiles / f'{workspace_id}.json'
+    profile_file.write_text(json.dumps(dict(schemaVersion=4, kind='workspace', data=profile)))
+    profile_file.chmod(0o600)
+    original = helper.read_bytes()
+    run_id = None
+    try:
+        with Native(temporary) as app:
+            app.click('[data-page=dashboard]')
+            app.until("document.querySelector('[data-launch-id=\"" + project_id + "\"]')")
+            app.click('[data-launch-id="' + project_id + '"]')
+            app.until("document.querySelector('dialog')?.textContent.includes('Owned server')")
+            assert str(helper) in app.js("return document.querySelector('dialog').innerText;")
+            assert not list((temporary / 'state/workspace-manager/runtime/runs').glob('*.json'))
+            app.click('dialog .dialog-actions .primary-button')
+            app.until("!document.querySelector('dialog')")
+            app.click('[data-page=activity]')
+            app.until("document.querySelector('.runtime-run .task-state')?.textContent === 'ready'", timeout=20)
+            app.until("document.querySelector('.runtime-run > .runtime-output')?.textContent.includes('owned-worker-ready')")
+            app.click('[data-page=dashboard]')
+            app.until("document.querySelector('[data-launch-id=\"" + workspace_id + "\"]')")
+            app.click('[data-launch-id="' + workspace_id + '"]')
+            app.until("document.querySelector('dialog')?.textContent.includes('Review Coding')")
+            app.click('dialog .dialog-actions .primary-button')
+            app.until("!document.querySelector('dialog')")
+            app.click('[data-page=activity]')
+            app.until("document.querySelector('.runtime-run .task-state')?.textContent === 'ready'")
+            app.assert_layout()
+            app.screenshot('activity')
+            state = controller_rpc(temporary, {'action': 'state'})
+            assert len(state['runtime']['runs']) == 1
+            assert state['runtime']['activeWorkspaceId'] == workspace_id
+            run_id = state['runtime']['runs'][0]['id']
+            app.close()
+        # The owned worker and HTTP server survive closing the GUI and killing
+        # only this fixture's controller. No process-name matching is used.
+        directory = os.open(temporary / 'state/workspace-manager/runtime/controller', os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with socket.socket(socket.AF_UNIX) as connection:
+                connection.connect(f'/proc/self/fd/{directory}/control.sock')
+                pid, uid, _ = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+                assert uid == os.getuid()
+                assert b'--controller' in Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+                controller_pidfd = os.pidfd_open(pid)
+                try:
+                    signal.pidfd_send_signal(controller_pidfd, signal.SIGKILL)
+                finally:
+                    os.close(controller_pidfd)
+        finally:
+            os.close(directory)
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/health') as response:
+            assert response.read() == b'owned-fixture'
+        with Native(temporary) as app:
+            app.click('[data-page=activity]')
+            app.until("document.querySelector('.runtime-run .task-state')?.textContent === 'ready'", timeout=20)
+            assert len(controller_rpc(temporary, {'action': 'state'})['runtime']['runs']) == 1
+            app.click('[data-page=dashboard]')
+            app.until("document.querySelector('[data-launch-id]')")
+            app.screenshot('dashboard')
+            app.click('[data-page=sessions]')
+            app.until("document.querySelector('.runtime-actions .primary-button')")
+            app.click('.runtime-actions .primary-button')
+            app.until("document.querySelector('dialog input')")
+            app.fill('dialog input', 'Owned snapshot')
+            app.submit()
+            app.until("document.body.textContent.includes('Owned snapshot')")
+            app.screenshot('sessions')
+            first = controller_rpc(temporary, {'action': 'state'})['sessions'][0]
+            assert first['value']['projects'][0]['id'] == project_id
+            branch = controller_rpc(temporary, {'action': 'branch', 'id': first['value']['id'], 'name': 'Independent branch'})
+            assert branch['session']['value']['parentSessionId'] == first['value']['id']
+            assert len(controller_rpc(temporary, {'action': 'state'})['sessions']) == 2
+            app.click('[data-page=dashboard]')
+            app.until("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Save & Shutdown'))")
+            app.js("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Save & Shutdown')).click(); return true;")
+            app.until("document.querySelector('dialog')?.textContent.includes('Confirm Save & Shutdown')")
+            app.assert_layout()
+            app.click('dialog .dialog-actions .secondary-button')
+            app.until("!document.querySelector('dialog')")
+            assert controller_rpc(temporary, {'action': 'state'})['runtime']['shutdownState'] == 'idle'
+            app.click('[data-page=activity]')
+            app.until("document.querySelector('.runtime-run')")
+            app.click('.runtime-run .runtime-actions .secondary-button')
+            app.until("document.querySelector('.runtime-run .task-state')?.textContent === 'stopped'", timeout=15)
+            app.narrow_viewport()
+            app.assert_layout()
+            assert helper.read_bytes() == original
+            app.close()
+    finally:
+        if run_id:
+            try:
+                controller_rpc(temporary, {'action': 'stop', 'id': run_id, 'force': True})
+            except (OSError, ValueError):
+                pass
+    print('PASS: native owned server readiness/output, GUI close, controller SIGKILL/reconnect, preserved worker identity, session capture/branch, shutdown cancel, graceful stop and narrow layout; no power-off or browser handoff.')
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import { DuplicatePolicy, ProjectSource } from '../../bindings/workspace-manager
 
 vi.mock('../services/workspaces', () => ({ listWorkspaces: vi.fn(), createWorkspace: vi.fn(), editWorkspace: vi.fn(), duplicateWorkspace: vi.fn(), deleteWorkspace: vi.fn(), setDefaultWorkspace: vi.fn(), setWorkspaceApplications: vi.fn(), setWorkspaceProjects: vi.fn() }))
 vi.mock('../services/projects', () => ({ listProjects: vi.fn() }))
+vi.mock('../services/lifecycle', () => ({ execute: vi.fn().mockResolvedValue({ code: 'failed', message: 'Fixture controller unavailable.' }) }))
 vi.mock('../services/desktop', () => ({ getInfo: vi.fn().mockResolvedValue({ os: 'linux', architecture: 'amd64', version: 'test', goVersion: 'test', sessionType: 'wayland' }) }))
 vi.mock('../services/applications', () => ({ listApplications: vi.fn(), getApplicationIcon: vi.fn() }))
 
@@ -182,6 +183,7 @@ describe('workspace profiles', () => {
   it('offers working navigation and a theme control in the desktop shell', async () => {
     const user = userEvent.setup()
     render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Workspaces' }))
     await screen.findByRole('article', { name: 'Coding' })
     const initial = document.documentElement.dataset.theme
     await user.click(screen.getByRole('button', { name: /Use (light|dark) theme/ }))
@@ -297,4 +299,35 @@ describe('workspace profiles', () => {
     expect(api.setWorkspaceApplications).toHaveBeenCalledTimes(2)
     expect(await screen.findByText('Apps (0)')).toBeInTheDocument()
   })
+})
+
+it('opens workspace creation from the global action without an extra page click', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.listWorkspaces).mockResolvedValue(result(state()))
+  render(<App />)
+  await user.click(screen.getByRole('button', { name: 'Create workspace' }))
+  const dialog = await screen.findByRole('dialog', { name: 'New workspace' })
+  expect(within(dialog).getByLabelText('Name')).toHaveFocus()
+  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  await user.click(screen.getByRole('button', { name: /Use (light|dark) theme/ }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Create workspace' }))
+  expect(await screen.findByRole('dialog', { name: 'New workspace' })).toBeVisible()
+  expect(api.createWorkspace).not.toHaveBeenCalled()
+})
+
+it('opens searchable quick actions with Ctrl K without replacing an open draft', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.listWorkspaces).mockResolvedValue(result(state()))
+  render(<App />)
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+  const search = screen.getByRole('textbox', { name: 'Search actions' })
+  expect(search).toHaveFocus()
+  await user.type(search, 'create workspace')
+  await user.keyboard('{Enter}')
+  const editor = await screen.findByRole('dialog', { name: 'New workspace' })
+  await user.type(within(editor).getByLabelText('Name'), 'My draft')
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+  expect(screen.queryByRole('dialog', { name: 'Quick actions' })).not.toBeInTheDocument()
+  expect(within(editor).getByLabelText('Name')).toHaveValue('My draft')
 })

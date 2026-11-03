@@ -5,8 +5,9 @@ import { ProjectCreation } from '../components/ProjectCreation'
 import { ProjectRegistry } from '../components/ProjectRegistry'
 import { ProjectCreationHistory } from '../components/ProjectCreationHistory'
 
-export function Projects() {
-  const [creating, setCreating] = useState(false)
+export function Projects({ createRequest = 0 }: { createRequest?: number }) {
+  const [creating, setCreating] = useState(createRequest > 0)
+  useEffect(() => { if (createRequest) setCreating(true) }, [createRequest])
   const [history, setHistory] = useState(false)
   const [registryVersion, setRegistryVersion] = useState(0)
   const [path, setPath] = useState('')
@@ -74,6 +75,6 @@ export function Projects() {
     <ProjectRegistry key={registryVersion} report={report} candidate={candidate} />
     {history && <ProjectCreationHistory onClose={() => setHistory(false)} onRestored={() => setRegistryVersion(value => value + 1)} />}
     {creating && <ProjectCreation onClose={() => setCreating(false)} onCreated={result => { setCreating(false); setRegistryVersion(value => value + 1); setPath(result.path); setReport(null); setSelected(null); setError(result.code ? result.message : ''); setNotice(result.registered ? 'Project created and registered. Review its startup command before execution.' : 'Project files created. Check the result and inspect the directory if registration is needed.') }} />}
-    <aside className="scope-note"><h2>Inspect first. Review before saving.</h2><p>Inspection leaves saved configurations alone. Rescan a registered project to compare suggestions and explicitly choose a change for review. Readiness checks, editor and stop actions are saved configuration; execution will be added later. Saving runs nothing. Associate saved projects from Workspaces.</p></aside>
+    <aside className="scope-note"><h2>Inspect first. Review before saving.</h2><p>Inspection leaves saved configurations alone. Rescan a registered project to compare suggestions and explicitly choose a change for review. Saving configuration runs nothing. Use Run & Preview to review and launch approved commands. Associate saved projects from Workspaces.</p></aside>
   </>
 }

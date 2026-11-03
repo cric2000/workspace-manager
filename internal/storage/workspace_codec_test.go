@@ -52,8 +52,8 @@ func TestWorkspaceUpgradePreservesExactOldBytesUntilExplicitSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	current, _ := os.ReadFile(filename)
-	if !bytes.Contains(current, []byte(`"schemaVersion": 3`)) {
-		t.Fatal("save did not write workspace schema 3")
+	if !bytes.Contains(current, []byte(`"schemaVersion": 4`)) {
+		t.Fatal("save did not write workspace schema 4")
 	}
 	archived, err := os.ReadFile(filepath.Join(path, "history", string(value.ID), string(before.Revision)+".json"))
 	if err != nil || !bytes.Equal(archived, workspaceV1) {
@@ -135,7 +135,7 @@ func TestWorkspaceMigrationRefusesUnknownFieldsAndNewerSchema(t *testing.T) {
 			t.Fatal("unsafe legacy payload migrated", err)
 		}
 	}
-	future := bytes.Replace(workspaceV1, []byte(`"schemaVersion": 1`), []byte(`"schemaVersion": 4`), 1)
+	future := bytes.Replace(workspaceV1, []byte(`"schemaVersion": 1`), []byte(`"schemaVersion": 5`), 1)
 	if _, err := codec.Decode(future); !errors.Is(err, ErrUnsupportedSchema) {
 		t.Fatal(err)
 	}

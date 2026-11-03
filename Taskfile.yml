@@ -10,6 +10,11 @@ includes:
   linux: ./build/linux/Taskfile.yml
 
 tasks:
+  package:
+    summary: Build an installable Linux AMD64 Debian package
+    cmds:
+      - task: build
+      - bash scripts/package-linux.sh
   build:
     summary: Build the Linux desktop application
     preconditions:

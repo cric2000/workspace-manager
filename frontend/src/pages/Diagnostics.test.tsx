@@ -14,12 +14,12 @@ describe('desktop diagnostics', () => {
     document.documentElement.removeAttribute('data-theme')
   })
 
-  it('shows real bridge diagnostics and clearly states the current scope', async () => {
+  it('shows bridge diagnostics and the installed version', async () => {
     render(<Diagnostics />)
     expect(await screen.findByText('Desktop bridge connected')).toBeInTheDocument()
     expect(screen.getByText('linux / amd64')).toBeInTheDocument()
     expect(screen.getByText('0.1.0-test')).toBeInTheDocument()
-    expect(screen.getByText(/Application launching, project execution/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Diagnostics', level: 1 })).toBeInTheDocument()
   })
 
   it('prevents repeated requests while a connection is pending', () => {

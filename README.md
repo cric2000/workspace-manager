@@ -1,39 +1,33 @@
 # Workspace Manager
 
-A local Linux developer workspace manager built with Go, Wails v3, React,
-TypeScript and Tailwind CSS.
+A local Linux developer workspace manager built with Go, Wails v3, React and TypeScript.
 
-## Status
+![Native dashboard](docs/screenshots/dashboard.png)
 
-In development. Workspace management, reviewed application launching, and project
-inspection/configuration are available. Managed project execution, session restore,
-login startup and Save & Shutdown are still being built.
+[Activity](docs/screenshots/activity.png) · [Sessions](docs/screenshots/sessions.png)
+— captured from an isolated native test workspace.
 
 ## Features
 
-- Create, edit, duplicate and delete workspaces; choose a default and order projects.
-- Discover desktop applications and review desktop/custom executable launches.
-- Inspect projects, compare rescans and save reviewed commands, environment-file references,
-  readiness, preview, editor, stop and delay settings. Saving runs no project code.
-- Preview and create Go, Node.js/TypeScript, Python, FastAPI or official Next.js starters; commands require review.
-- Check tool versions, review Git/venv/dependency setup, and revisit creation/setup history.
-- Reconcile interrupted creation/setup and review restoration of a verified missing registration.
-- Remove unused project registrations while preserving source files and history.
-- Store configuration locally using XDG paths, versioned JSON and atomic writes.
+- Create workspaces and Go, Node/TypeScript, Next.js, Python or FastAPI projects.
+- Import projects; review literal commands, editors, environment references and previews.
+- Launch ordered applications/projects with delays, readiness checks and duplicate prevention.
+- Keep managed servers running after the GUI closes; reconnect to bounded logs and stop controls.
+- Save, restore, branch and revise sessions with recoverable history.
+- Configure reviewed fixed, session restore or hybrid login startup.
+- Save and verify a snapshot before gracefully stopping managed services and opening normal GNOME shutdown.
 
-## Requirements
-
-- Ubuntu 26.04, GNOME Wayland, Linux AMD64.
-- Go 1.26+, Node.js 24+ and npm.
-- Wails CLI v3.0.0 and GTK4/WebKitGTK 6.0 development libraries.
-
-```bash
-sudo apt install build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
-```
+V1 implementation is available. Real logout/login, power-off, X11, assistive-technology
+and clean-system installation acceptance checks remain pending; see [roadmap](docs/roadmap.md).
+Snapshots preserve supported launch metadata, not source files, unsaved documents,
+arbitrary browser tabs or terminal history. Project execution always requires approval.
 
 ## Build and run
 
+Ubuntu 26.04 GNOME, Linux AMD64; Go 1.26+, Node.js 24+ and npm.
+
 ```bash
+sudo apt install build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev desktop-file-utils
 mkdir -p .tools/bin
 GOBIN="$PWD/.tools/bin" go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 export PATH="$PWD/.tools/bin:$PATH"
@@ -42,20 +36,43 @@ wails3 build
 ./bin/workspace-manager
 ```
 
-The build regenerates frontend bindings and embeds the frontend in the executable.
-For development with hot reload, run `wails3 dev` after setup.
+Use `wails3 dev` for development. Configuration and state follow XDG directories.
+Environment files accept literal `KEY=VALUE` lines, with optional enclosing quotes;
+there is no shell expansion. Output redaction is best effort; avoid printing secrets.
 
-## Test
+## Test and package
 
 ```bash
 export PATH="$PWD/.tools/bin:$PATH"
 wails3 task test
+wails3 task package
 ```
 
-This builds the frontend and runs Go race tests, Go vet and frontend tests.
-Native Wayland checks are available in `scripts/native-smoke.py`.
-Setup requires separate command approval and preserves partial files on failure.
-Next.js preparation downloads the official scaffolder before a separate file review.
+The package is `bin/workspace-manager_1.0.0_amd64.deb`. Packaging never installs it.
 
-See the [roadmap](docs/roadmap.md) for remaining work and
-[architecture](docs/architecture.md) for design decisions.
+```bash
+sudo apt install ./bin/workspace-manager_1.0.0_amd64.deb
+# Disable login startup and stop managed workers in Activity before uninstalling.
+sudo apt remove workspace-manager
+```
+
+Uninstall preserves configuration, snapshots and project directories. The GUI closes
+independently of managed workers. `workspace-manager --status` prints controller
+state; `--stop-controller` disconnects the controller while preserving workers.
+
+## Daily workflow
+
+1. Use the top bar to create a workspace or project from any screen. `Ctrl+K` opens quick actions.
+2. Add applications/projects to your workspace.
+3. Approve project startup configuration, then review and launch the workspace.
+4. Inspect readiness and output in Activity; open a configured preview after readiness.
+5. Save a named session using the top bar; a name is suggested for you. Restore it or save an independent branch from Sessions.
+6. Review login startup in Settings, or review Save & Shutdown from Dashboard.
+
+Native fixture checks: build with `go build -tags production,mcp -o bin/workspace-manager-smoke .`,
+then run `python3 scripts/native-smoke.py --lifecycle-only` in a graphical session.
+These use owned fixtures and never power off. Production builds have no MCP endpoint.
+Add `--screenshots` to refresh the native screenshots. Run `python3 scripts/check-package.py`
+after packaging to verify isolated unpack/removal and the production CLI.
+
+[Architecture](docs/architecture.md) · [MIT license](LICENSE)

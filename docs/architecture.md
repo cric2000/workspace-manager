@@ -14,7 +14,8 @@ module and frontend runtime use version 3.0.0.
 | `internal/applications` | Discovery facade, reviewed launch and duplicate handling |
 | `internal/projects` | Detection, reviewed configuration/creation and guarded registration removal |
 | `internal/projects/bootstrap` | Deterministic starter registry and staged publication without overwrites |
-| `internal/platform/linux` | GIO, icons, desktop/custom launches and D-Bus instance checks |
+| `internal/platform/linux` | GIO, icons, desktop/custom launches, D-Bus instance checks and normal GNOME shutdown |
+| `internal/lifecycle` | Local controller IPC, worker supervision, launch plans, snapshots, login and shutdown |
 | `frontend/src` | Pages, components and typed service wrappers |
 
 Configuration lives under `$XDG_CONFIG_HOME/workspace-manager`, session state under
@@ -23,7 +24,7 @@ Unset/relative XDG variables use standard home-directory defaults. Private stora
 uses directories with mode 0700, files with mode 0600, atomic replacement, revision
 checks and recoverable history. Feature locks coordinate cooperating GUI processes.
 
-Workspace/project/session schemas are version 3; settings remain version 1.
+Workspace/session schemas are version 4; projects remain version 3 and settings version 1.
 Migrations are strict, preserve valid legacy approvals, and never rewrite on read.
 Sessions hold independent project snapshots; branching deep-copies nested settings.
 
@@ -50,8 +51,8 @@ Sessions hold independent project snapshots; branching deep-copies nested settin
   The Python starter runs/tests with the standard library, declares setuptools
   packaging metadata and shows optional venv setup separately. It saves system
   Python; creating a venv manually does not change the saved command.
-  Activity/outcome caches are transient; durable task logs and crash recovery remain
-  pending. Tool presence is checked without executing or version-probing it.
+  Review/outcome caches are transient; creation/setup histories and recovery checkpoints
+  are durable. Tool presence is checked without executing or version-probing it.
   FastAPI adds required venv and dependency steps (separately reviewed after creation),
   a project-local interpreter, HTTP health readiness and a docs preview. Approval
   requires the interpreter to exist. Executable review preserves its invocation
@@ -97,8 +98,7 @@ Sessions hold independent project snapshots; branching deep-copies nested settin
   Restored commands stay unapproved; lost responses have a read-only outcome query.
   Partial setup, temporary preparation output and older attempts without checkpoints
   require manual inspection. Recovery never replays tools, adopts partial installs,
-  cleans project/staging files or stops processes; managed process recovery follows
-  with the Phase 7 controller.
+  cleans project/staging files or stops processes. Managed workers have separate ownership.
 - Tool version probes require an explicit action on a held creation/setup review.
   Fixed argv runs in an isolated temporary directory with pinned executables,
   three-second command/15-second total limits and 4 KiB output bounds. Only parsed
@@ -122,23 +122,75 @@ Sessions hold independent project snapshots; branching deep-copies nested settin
 - Metadata deletion must preserve project directories. Raw secrets and arbitrary
   application memory must not enter configuration or session snapshots.
 
-## Planned controller
+## Controller and workers
 
-Before managed project execution, introduce an independent controller so closing
-Wails does not terminate development servers. Prefer modes of one Go executable,
-with a single per-user controller, a private Unix socket and peer-UID verification.
-The GUI reconnects through typed operations; no unauthenticated TCP control API.
+One executable supports GUI, `--controller`, `--task-worker ID`, `--login`,
+`--status` and `--stop-controller` modes. GUI services reconnect over a 0600 Unix
+socket in a 0700 directory, with peer-UID verification in both directions. A
+kernel lease prevents duplicate controllers. Pinned directory descriptors avoid
+socket path-length limits and symlink substitution. There is no TCP control API.
 
-The controller will own persistence and managed process groups, track process start
-identity, reconcile after restart, and provide bounded logs, readiness, delays,
-retry and cancellation. Stop only owned processes; force stop requires explicit
-user action. Editor/stop commands remain explicit argv configurations.
+Each project command has an independent worker and per-command lease. The worker
+owns its child's process group, bounded output, readiness and graceful/explicit
+force stop. GUI/controller exit does not kill workers. Runtime metadata records
+boot ID, PID and process start time; pidfds address workers without PID reuse.
+A non-reaping wait and a shared signal/reap lock prevent process-group reuse
+between ownership checks and signalling. Metadata write failures retain the live
+worker so it can still accept an explicit stop rather than abandoning a service.
+A controller restart reads metadata instead of adopting arbitrary child PIDs.
+Old-boot records become stopped. Unknown workers or surviving descendants require
+inspection; no process-name matching or blind group kill is used.
 
-Sessions restore supported applications and managed project configurations, not
-unsaved buffers, browser tabs or terminal history. Branching preserves the parent.
-Login supports fixed, restore and hybrid modes with duplicate prevention.
+Runtime log ticks use atomic replacement without accumulating revision backups.
+User sessions retain the ordinary revisioned repository. Known environment values
+and common credential patterns are redacted, but arbitrary application output is
+not a secret store. Environment files use bounded, no-symlink reads and literal
+KEY=VALUE syntax; values never enter configuration or snapshots. The worker
+rechecks executable/directory identity after delays and stop-action identity before
+execution. These checks are not a sandbox for approved, mutable project source.
 
-Save & Shutdown must confirm user intent, save and verify the snapshot, stop managed
-services gracefully, then request normal desktop shutdown. Persistence failure
-blocks that path; OS denial preserves the snapshot. Actual power-off tests require
-explicit approval. GNOME Wayland restrictions and X11 behavior require manual checks.
+Readiness accepts loopback HTTP/TCP only. HTTP ignores proxies, refuses redirects,
+pins localhost to loopback and bounds each probe. Readiness failure leaves the
+process visible and owned; it does not silently kill or relaunch it.
+
+## Launch, sessions and login
+
+The task engine reviews current desktop/custom metadata, literal command/editor
+argv, URLs, stop policies, delays and approval. Commit repeats validation and
+returns a cached outcome per token. Accepted tasks run outside the GUI request
+context. Cancellation skips undispatched tasks and preserves already running
+services. Switching can preserve services or gracefully stop previous exclusive
+project services before dispatching new tasks. Running project command identities
+are reused rather than duplicated, including identical commands re-registered with
+new IDs. Hybrid plans deduplicate canonical project directories before task creation.
+
+Session capture stores known launch metadata, managed project snapshots and
+supported external session D-Bus identities. It reports Wayland capture gaps;
+unsaved documents, arbitrary tabs, terminal history and raw environment values are
+not captured. Branches have independent IDs and a stable parent. Rename/update,
+revision restore and deletion are explicit; ancestry and selected restore targets
+are protected. Capture is persisted and read back before reporting success.
+
+Fixed login launches a workspace; restore uses the selected snapshot; hybrid merges
+both by stable task identity. A persisted fingerprint authorizes only the reviewed
+plan. Changed applications/configuration require another review. One dispatch
+marker per desktop session prevents replay after controller restart. A failed or
+interrupted login remains visible for manual review rather than automatic replay.
+The owned [XDG Autostart entry](https://specifications.freedesktop.org/autostart/latest/)
+quotes literal executable paths and refuses to overwrite unrelated entries.
+
+## Shutdown and distribution
+
+Shutdown progresses through confirming, capturing, snapshot_saved,
+stopping_managed_processes, requesting_shutdown and completed_request, or failed/
+cancelled. Capture/verification failure stops the workflow before any service
+signal. Graceful-stop failure prevents OS handoff; force stop is a separate explicit
+action. The [normal GNOME Shutdown API](https://gnome.pages.gitlab.gnome.org/gnome-session/re04.html)
+requests the desktop shutdown dialog. A successful call is only an accepted request;
+the desktop/user can still cancel. There are no force shutdown commands or inhibitor
+bypasses. Automated tests use mocked OS handoffs.
+
+The Debian package installs one production executable, desktop entry, scalable icon
+and license/docs, with no post-install execution or cleanup of user data. Production
+builds exclude Wails MCP and screenshot services. Native smoke builds enable them
+only for isolated fixtures; WebKit snapshots capture app content without desktop access.

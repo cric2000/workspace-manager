@@ -8,7 +8,7 @@ import (
 )
 
 const ProjectSchemaVersion = 3
-const SessionSchemaVersion = 3
+const SessionSchemaVersion = 4
 
 // Legacy records migrate in memory. Only an explicit mutation writes the new
 // envelope, preserving the exact previous bytes in history. No approval is inferred.
@@ -17,7 +17,23 @@ func NewProjectCodec() (*Codec[domain.Project], error) {
 }
 
 func NewSessionCodec() (*Codec[domain.Session], error) {
-	return NewCodec[domain.Session](SessionSchemaVersion, map[int]Migration{1: migrateSessionV1, 2: migrateSessionV2})
+	return NewCodec[domain.Session](SessionSchemaVersion, map[int]Migration{1: migrateSessionV1, 2: migrateSessionV2, 3: migrateSessionV3})
+}
+
+func migrateSessionV3(payload json.RawMessage) (json.RawMessage, error) {
+	var old struct {
+		ID              domain.ID        `json:"id"`
+		Name            string           `json:"name"`
+		CapturedAt      time.Time        `json:"capturedAt"`
+		WorkspaceID     domain.ID        `json:"workspaceId,omitempty"`
+		ParentSessionID domain.ID        `json:"parentSessionId,omitempty"`
+		Projects        []domain.Project `json:"projects"`
+		CaptureWarnings []string         `json:"captureWarnings"`
+	}
+	if err := decodeFields(payload, &old); err != nil {
+		return nil, err
+	}
+	return json.Marshal(domain.Session{ID: old.ID, Name: old.Name, CapturedAt: old.CapturedAt, WorkspaceID: old.WorkspaceID, ParentSessionID: old.ParentSessionID, Projects: old.Projects, CaptureWarnings: old.CaptureWarnings})
 }
 
 type projectV1 struct {

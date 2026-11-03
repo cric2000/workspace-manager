@@ -146,7 +146,7 @@ func (service *Service) read(ctx context.Context) (*State, error) {
 	settings, err := service.settings.Get(ctx)
 	if errors.Is(err, fs.ErrNotExist) {
 		// Only absence permits defaults. Corrupt/newer files remain untouched.
-		if err = service.settings.Create(ctx, domain.DefaultSettings()); err != nil {
+		if err = service.settings.Create(ctx, domain.DefaultSettings()); err != nil && !errors.Is(err, fs.ErrExist) {
 			return nil, err
 		}
 		settings, err = service.settings.Get(ctx)

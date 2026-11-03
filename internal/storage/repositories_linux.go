@@ -15,7 +15,7 @@ import (
 // Entity records have stable IDs; settings are a separate singleton repository.
 type Entity interface {
 	Record
-	domain.Workspace | domain.Project | domain.Session | domain.SetupLog | domain.CreationLog | domain.BootstrapRecovery
+	domain.Workspace | domain.Project | domain.Session | domain.SetupLog | domain.CreationLog | domain.BootstrapRecovery | domain.ManagedRun | domain.StartupAuthorization | domain.ManagedSelection
 }
 
 type Repository[T Entity] struct{ store *recordStore[T] }
@@ -48,6 +48,12 @@ func entityID[T Entity](value T) domain.ID {
 	case domain.CreationLog:
 		return entity.ID
 	case domain.BootstrapRecovery:
+		return entity.ID
+	case domain.ManagedRun:
+		return entity.ID
+	case domain.StartupAuthorization:
+		return entity.ID
+	case domain.ManagedSelection:
 		return entity.ID
 	default:
 		panic("Entity constraint and entityID must be updated together")
@@ -274,6 +280,9 @@ func stableIdentity[T Record](before, after T) error {
 	case domain.Session:
 		next := any(after).(domain.Session)
 		valid = old.ID == next.ID && old.ParentSessionID == next.ParentSessionID
+	case domain.ManagedRun:
+		next := any(after).(domain.ManagedRun)
+		valid = old.ID == next.ID && old.ProjectID == next.ProjectID && old.Command.Configuration.Fingerprint() == next.Command.Configuration.Fingerprint() && old.StartedAt.Equal(next.StartedAt) && !next.UpdatedAt.Before(old.UpdatedAt)
 	case domain.SetupLog:
 		next := any(after).(domain.SetupLog)
 		valid = old.ID == next.ID && old.ProjectID == next.ProjectID && old.Kind == next.Kind && old.Label == next.Label && old.RecordedAt.Equal(next.RecordedAt) && old.Result == nil && next.Result != nil

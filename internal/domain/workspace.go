@@ -13,11 +13,17 @@ type Workspace struct {
 	Description  string                 `json:"description"`
 	ProjectIDs   []ID                   `json:"projectIds"`
 	Applications []WorkspaceApplication `json:"applications"`
+	Launch       *WorkspaceLaunch       `json:"launch,omitempty"`
 	CreatedAt    time.Time              `json:"createdAt"`
 	UpdatedAt    time.Time              `json:"updatedAt"`
 }
 
 func (workspace Workspace) Validate() error {
+	if workspace.Launch != nil {
+		if err := workspace.Launch.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := workspace.ID.Validate(); err != nil {
 		return fmt.Errorf("id: %w", err)
 	}
@@ -56,6 +62,27 @@ func (workspace Workspace) Validate() error {
 			return fmt.Errorf("applications[%d]: duplicate application identity", index)
 		}
 		apps[key] = true
+	}
+	return nil
+}
+
+type WorkspaceLaunch struct {
+	URLs          []string       `json:"urls"`
+	DelaySeconds  int            `json:"delaySeconds"`
+	DefaultEditor *CommandAction `json:"defaultEditor,omitempty"`
+}
+
+func (launch WorkspaceLaunch) Validate() error {
+	if len(launch.URLs) > 64 || launch.DelaySeconds < 0 || launch.DelaySeconds > 3600 {
+		return fmt.Errorf("use at most 64 URLs and a delay of 0–3600 seconds")
+	}
+	for _, value := range launch.URLs {
+		if err := ValidateWebURL(value); err != nil {
+			return err
+		}
+	}
+	if launch.DefaultEditor != nil {
+		return launch.DefaultEditor.Validate()
 	}
 	return nil
 }

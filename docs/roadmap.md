@@ -1,71 +1,51 @@
-# Roadmap
+# V1 roadmap
 
-The project is built incrementally. Completed implementation still needs the manual
-acceptance checks listed below; this is not a complete V1 release.
+All thirteen phases have implementation in the repository. Automated checks do
+not replace the desktop acceptance gates below; this is a release candidate until
+those gates are verified.
 
-| Phase | Scope | Status |
+| Phase | Scope | Implementation |
 | --- | --- | --- |
-| 1 | Wails/React foundation, diagnostics and themes | Implemented |
-| 2 | Domain models, JSON repositories, migrations and recovery | Implemented |
-| 3 | Workspace CRUD and default selection | Implemented |
-| 4 | Application discovery, configuration and reviewed launch | Implemented |
-| 5 | Existing-project import, detection and reviewed configuration | Implemented; manual gates pending |
-| 6 | Creation wizard: Go, Node/TypeScript, Next.js, Python and FastAPI | Implemented; manual acceptance gates pending |
-| 7 | Independent controller, process ownership, logs, readiness and Run & Preview | Planned |
-| 8 | Ordered workspace execution, editors/URLs, delays and safe switching | Planned |
-| 9 | Session capture, restore, branching and revision management | Planned |
-| 10 | XDG Autostart with fixed, restore and hybrid modes | Planned |
-| 11 | Save & Shutdown with verified snapshots and graceful managed stop | Planned |
-| 12 | Reliability, accessibility, errors and UI polish | Planned |
-| 13 | Linux binary/.deb, launcher, icon, license and release documentation | Planned |
+| 1 | Wails/React foundation, diagnostics, themes | Implemented |
+| 2 | Models, JSON storage, migrations, recovery | Implemented |
+| 3 | Workspace CRUD/defaults | Implemented |
+| 4 | Application discovery/reviewed launch | Implemented |
+| 5 | Project import/detection/configuration | Implemented |
+| 6 | Five starter templates, reviewed setup/history/recovery | Implemented |
+| 7 | Independent controller/workers, output, readiness, Run & Preview | Implemented |
+| 8 | Ordered workspace launch, editors/URLs, delays, switching | Implemented |
+| 9 | Capture, restore, branching, explicit revision/history | Implemented |
+| 10 | XDG Autostart, fixed/restore/hybrid, login grants | Implemented |
+| 11 | Verified Save & Shutdown, cancellation/error state machine | Implemented; OS handoff tested with mocks |
+| 12 | Dashboard, Activity, Settings, keyboard controls, responsive errors | Implemented; manual accessibility checks pending |
+| 13 | Production binary, Debian package, launcher/icon/license/docs/screenshots | Implemented; clean-machine acceptance pending |
 
-## Current milestone
+## Verified automatically
 
-Project import/configuration, rescans, workspace association and guarded removal
-are implemented. Phase 6 now provides a template registry and creation wizards for
-Go, Node.js + TypeScript, Python, FastAPI and Next.js, with exact preview, staged publication,
-cancellation and unapproved startup configuration. Creation does not execute
-project code or install dependencies. Next.js preparation explicitly downloads and
-runs pinned create-next-app in a private directory before a separate file review.
+- Go race/vet, frontend tests and production builds.
+- Owned-process readiness/output, duplicate prevention, stop/cancellation and controller reconnect.
+- Native Wayland creation/configuration, session capture/branch and shutdown cancellation.
+- Isolated dpkg unpack/removal, packaged production CLI/controller and native screenshots.
 
-FastAPI saves a project-local venv interpreter, health check and docs preview;
-its environment and dependency steps require separate approval after creation.
+## Manual acceptance pending
 
-Next.js supports TypeScript/JavaScript, Tailwind, App/Pages Router, src directory
-and npm/pnpm. Generated output is bounded and published without rerunning the tool.
+- Real logout/login with all startup modes and an installed package.
+- Real browser preview and editor handoff, GTK chooser, screen reader, keyboard/focus/scaling and X11.
+- Explicit user approval before any real power-off test; preserve snapshots on OS denial.
+- Clean-machine package installation/removal and retained user data.
 
-Post-creation setup supports empty Git initialization, new Python environments,
-npm/pnpm installs without lifecycle scripts, and FastAPI pip installation in its
-owned environment. Setup keeps partial files and never grants startup approval.
+## Practical limits
 
-Tool versions can be checked explicitly from creation and setup reviews; checks
-report declared minimums without approving setup.
-
-Setup attempts and bounded output persist across restart, with a read-only history
-view and explicit handling of missing final outcomes. Setup still requires the
-current creation session; history never grants retry or execution approval.
-
-Creation and official scaffolding attempts also persist, including publication
-failures and bounded tool output. Creation history is available without a project
-registration and never resumes or retries an operation.
-
-Restart recovery now checks per-attempt owner leases, destination metadata and
-registrations. Missing registrations can be restored through a fresh review only
-when the current tree matches the saved file hashes; startup remains unapproved.
-Partial installs, temporary preparation output and older untracked attempts require
-manual inspection rather than command replay or automatic cleanup.
-
-Phase 6 implementation is complete; manual chooser/accessibility/X11 checks remain
-pending. Next: Phase 7's independent controller, process ownership and Run & Preview.
-
-## Validation gates
-
-- Go race tests/vet, frontend tests, production builds and native Wayland workflows.
-- Manual GTK directory chooser, keyboard/screen-reader, scaling/focus and X11 checks.
-- Controller close/reopen, restart reconciliation, cancellation and duplicate prevention.
-- Session restore/branch independence and all three login startup modes.
-- Shutdown state-machine/error tests using mocks; explicit approval before a real
-  power-off test. Never force-close unrelated applications.
-- Clean installation/uninstallation and preservation of project source directories.
-
-No phase is complete until its checks pass and remaining limitations are recorded.
+- Sessions capture known launch metadata plus supported session D-Bus application
+  identities. Unsupported external apps need explicit desktop/custom configuration.
+- A review approves configuration, not mutable source. Restores never install dependencies.
+- Unknown worker/descendant ownership blocks automatic retry and signalling.
+  A verified released worker and absent process group can be explicitly reconciled.
+- Runtime output keeps at most 64 KiB per run. Sessions/runtime lists stop at 256
+  records and require explicit removal rather than silently deleting user history.
+- Launch reviews are limited to 256 tasks and 4 MiB of reviewed metadata.
+- Login startup is bound to a reviewed plan. Configuration changes require approval
+  again. A recorded login dispatch is not replayed automatically after a crash.
+- Closing the GUI preserves managed workers. Stop them before uninstalling/upgrading.
+- Temporary scaffold output and partial setup require inspection; recovery never
+  replays tools or automatically removes project/staging files.

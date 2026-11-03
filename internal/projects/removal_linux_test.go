@@ -71,7 +71,7 @@ func TestRemovalGuardsReferencesAndPreservesSourceAndHistory(t *testing.T) {
 	if after, _ := os.ReadFile(filename); !bytes.Equal(before, after) {
 		t.Fatal("blocked removal rewrote registration")
 	}
-	future := bytes.Replace(profileBytes, []byte(`"schemaVersion": 3`), []byte(`"schemaVersion": 999`), 1)
+	future := bytes.Replace(profileBytes, []byte(`"schemaVersion": 4`), []byte(`"schemaVersion": 999`), 1)
 	if bytes.Equal(profileBytes, future) {
 		t.Fatal("fixture schema was not changed")
 	}

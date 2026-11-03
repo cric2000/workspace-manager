@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Workspace Manager
+Comment=Launch, save and resume local developer workspaces
+Exec=workspace-manager
+Icon=io.github.workspace_manager.WorkspaceManager
+Terminal=false
+Categories=Development;
+StartupNotify=true
+StartupWMClass=io.github.workspace_manager.WorkspaceManager

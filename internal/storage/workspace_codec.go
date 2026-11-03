@@ -7,12 +7,28 @@ import (
 	"workspace-manager/internal/domain"
 )
 
-const WorkspaceSchemaVersion = 3
+const WorkspaceSchemaVersion = 4
 
 // NewWorkspaceCodec reads schema 1 without writing it on load. The next explicit
 // mutation archives its exact original bytes before writing schema 3.
 func NewWorkspaceCodec() (*Codec[domain.Workspace], error) {
-	return NewCodec[domain.Workspace](WorkspaceSchemaVersion, map[int]Migration{1: migrateWorkspaceV1, 2: migrateWorkspaceV2})
+	return NewCodec[domain.Workspace](WorkspaceSchemaVersion, map[int]Migration{1: migrateWorkspaceV1, 2: migrateWorkspaceV2, 3: migrateWorkspaceV3})
+}
+
+func migrateWorkspaceV3(payload json.RawMessage) (json.RawMessage, error) {
+	var old struct {
+		ID           domain.ID                     `json:"id"`
+		Name         string                        `json:"name"`
+		Description  string                        `json:"description"`
+		ProjectIDs   []domain.ID                   `json:"projectIds"`
+		Applications []domain.WorkspaceApplication `json:"applications"`
+		CreatedAt    time.Time                     `json:"createdAt"`
+		UpdatedAt    time.Time                     `json:"updatedAt"`
+	}
+	if err := decodeFields(payload, &old); err != nil {
+		return nil, err
+	}
+	return json.Marshal(domain.Workspace{ID: old.ID, Name: old.Name, Description: old.Description, ProjectIDs: old.ProjectIDs, Applications: old.Applications, CreatedAt: old.CreatedAt, UpdatedAt: old.UpdatedAt})
 }
 
 func migrateWorkspaceV2(payload json.RawMessage) (json.RawMessage, error) {

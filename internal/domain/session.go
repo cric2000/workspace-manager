@@ -12,13 +12,15 @@ import (
 // records contain metadata, not physical copies of the project directories.
 // Repository-level immutability and revision history are implemented separately.
 type Session struct {
-	ID              ID        `json:"id"`
-	Name            string    `json:"name"`
-	CapturedAt      time.Time `json:"capturedAt"`
-	WorkspaceID     ID        `json:"workspaceId,omitempty"`
-	ParentSessionID ID        `json:"parentSessionId,omitempty"`
-	Projects        []Project `json:"projects"`
-	CaptureWarnings []string  `json:"captureWarnings"`
+	ID              ID                     `json:"id"`
+	Name            string                 `json:"name"`
+	CapturedAt      time.Time              `json:"capturedAt"`
+	WorkspaceID     ID                     `json:"workspaceId,omitempty"`
+	ParentSessionID ID                     `json:"parentSessionId,omitempty"`
+	Projects        []Project              `json:"projects"`
+	Applications    []WorkspaceApplication `json:"applications,omitempty"`
+	URLs            []string               `json:"urls,omitempty"`
+	CaptureWarnings []string               `json:"captureWarnings"`
 }
 
 func (session Session) Validate() error {
@@ -41,6 +43,19 @@ func (session Session) Validate() error {
 		return errors.New("parentSessionId must not refer to the session itself")
 	}
 	seen := make(map[ID]bool, len(session.Projects))
+	if len(session.Applications) > MaxWorkspaceApplications || len(session.URLs) > 64 || len(session.Projects) > 256 {
+		return errors.New("session exceeds capture limits")
+	}
+	for _, app := range session.Applications {
+		if err := app.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, url := range session.URLs {
+		if err := ValidateWebURL(url); err != nil {
+			return err
+		}
+	}
 	for index, project := range session.Projects {
 		if err := project.Validate(); err != nil {
 			return fmt.Errorf("projects[%d]: %w", index, err)
@@ -75,6 +90,8 @@ func (session Session) Branch(name string, capturedAt time.Time) (Session, error
 		branch.Projects[i].Preferences = ClonePreferences(session.Projects[i].Preferences)
 	}
 	branch.CaptureWarnings = slices.Clone(session.CaptureWarnings)
+	branch.Applications = CloneApplications(session.Applications)
+	branch.URLs = slices.Clone(session.URLs)
 	var err error
 	branch.ID, err = NewID()
 	if err != nil {

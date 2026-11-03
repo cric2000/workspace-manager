@@ -162,7 +162,7 @@ func TestSessionMigrationStrictlyChecksEmbeddedProjects(t *testing.T) {
 	if _, err := codec.Decode(mustJSON(t, envelope)); !errors.Is(err, ErrInvalidDocument) {
 		t.Fatal("nested legacy commands accepted", err)
 	}
-	future := bytes.Replace(legacy, []byte(`"schemaVersion": 1`), []byte(`"schemaVersion": 4`), 1)
+	future := bytes.Replace(legacy, []byte(`"schemaVersion": 1`), []byte(`"schemaVersion": 5`), 1)
 	if _, err := codec.Decode(future); !errors.Is(err, ErrUnsupportedSchema) {
 		t.Fatal(err)
 	}

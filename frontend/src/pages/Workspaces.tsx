@@ -3,6 +3,7 @@ import { AppWindow, Copy, Folder, Layers3, Pencil, Plus, RefreshCw, Search, Star
 import { Modal } from '../components/Modal'
 import { WorkspaceProjects } from '../components/WorkspaceProjects'
 import { WorkspaceApplications } from '../components/WorkspaceApplications'
+import { LaunchControl } from '../components/LaunchControl'
 import { createWorkspace, deleteWorkspace, duplicateWorkspace, editWorkspace, listWorkspaces, setDefaultWorkspace, setWorkspaceApplications, setWorkspaceProjects, type Draft, type Result, type State, type View } from '../services/workspaces'
 
 type ProfileEditor = { kind: 'create' } | { kind: 'edit' | 'duplicate' | 'delete'; workspace: View }
@@ -10,7 +11,7 @@ type Editor = ProfileEditor | { kind: 'applications'; workspace: View } | { kind
 type Fault = { message: string; reconcile: boolean }
 const target = (workspace: View) => ({ id: workspace.id, revision: workspace.revision })
 
-export function Workspaces() {
+export function Workspaces({ createRequest = 0 }: { createRequest?: number }) {
   const [state, setState] = useState<State | null>(null)
   const [pending, setPending] = useState(true)
   const [fault, setFault] = useState<Fault | null>(null)
@@ -19,6 +20,7 @@ export function Workspaces() {
   const [blockedDraft, setBlockedDraft] = useState(false)
   const [needsReload, setNeedsReload] = useState(false)
   const [query, setQuery] = useState('')
+  const handledCreate = useRef(0)
   const busy = useRef(false)
   const mounted = useRef(false)
 
@@ -37,6 +39,13 @@ export function Workspaces() {
     })
     return () => { current = false; mounted.current = false }
   }, [])
+
+  useEffect(() => {
+    if (createRequest && handledCreate.current !== createRequest && state && !pending && !needsReload) {
+      handledCreate.current = createRequest
+      setEditor({ kind: 'create' }); setFault(null); setNotice(''); setBlockedDraft(false)
+    }
+  }, [createRequest, state, pending, needsReload])
 
   async function run(operation: () => Promise<Result>, success: string, mutation = true) {
     if (busy.current) return
@@ -117,6 +126,7 @@ export function Workspaces() {
           <h2>{workspace.name}</h2><p className={`workspace-description ${workspace.description ? '' : 'muted'}`}>{workspace.description || 'Add a description to make this workspace your own.'}</p>
           <div className="workspace-meta"><span><Folder size={14} aria-hidden="true" />{workspace.projectCount} project {workspace.projectCount === 1 ? 'reference' : 'references'}</span><span>Edited {new Date(workspace.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
           <div className="card-actions">
+            <LaunchControl kind="workspace" id={workspace.id} name={workspace.name} />
             <button className="secondary-button" aria-label={`Edit ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'edit', workspace })}><Pencil size={13} aria-hidden="true" />Edit</button>
             <button className="secondary-button" aria-label={`Configure applications for ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'applications', workspace })}><AppWindow size={13} aria-hidden="true" />Apps ({workspace.applications?.length ?? 0})</button>
             <button className="secondary-button" aria-label={`Configure projects for ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'projects', workspace })}><Folder size={13} aria-hidden="true" />Projects ({workspace.projectCount})</button>
@@ -128,7 +138,7 @@ export function Workspaces() {
       </div> : <div className="empty-workspaces panel"><span className="workspace-icon"><Layers3 size={27} aria-hidden="true" /></span><h2>{query ? 'No matching workspaces' : 'Start with a space for your work'}</h2><p className="muted">{query ? 'Try another name or description.' : 'Create a profile for coding, learning or your next idea.'}</p>{!query && <button className="secondary-button" disabled={disabled} onClick={() => openEditor({ kind: 'create' })}><Plus size={15} aria-hidden="true" />Create your first workspace</button>}</div>}
     </>}
     {!state && !pending && <button className="secondary-button" onClick={reload}>Retry loading</button>}
-    <aside className="scope-note"><h2>Build your profile, one step at a time.</h2><p>Save workspace details, installed and custom applications, launch order and duplicate preferences here. Review individual tools from Applications. Associate registered projects in workspace order. Workspace execution remains planned.</p></aside>
+    <aside className="scope-note"><h2>A reusable setup for your work.</h2><p>Arrange applications and projects here. Launch reviews show exact commands and skip unavailable or unapproved tasks. Configure URLs, editor and delays from Dashboard; inspect managed workers in Activity.</p></aside>
     {editor?.kind === 'applications' ? <WorkspaceApplications workspace={editor.workspace} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSave={choices => { if (!blockedDraft && !needsReload) void run(() => setWorkspaceApplications(target(editor.workspace), choices), 'Workspace applications saved.') }} /> : editor?.kind === 'projects' ? <WorkspaceProjects workspace={editor.workspace} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSave={choices => { if (!blockedDraft && !needsReload) void run(() => setWorkspaceProjects(target(editor.workspace), choices), 'Workspace projects saved.') }} /> : editor && <WorkspaceEditor key={editor.kind + ('workspace' in editor ? editor.workspace.id : '')} editor={editor} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSubmit={submit} />}
   </>
 }
