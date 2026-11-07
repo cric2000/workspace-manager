@@ -2,9 +2,9 @@
 
 A local Linux developer workspace manager built with Go, Wails v3, React and TypeScript.
 
-![Workspace home](docs/screenshots/dashboard.png)
+![Workspaces home](docs/screenshots/dashboard.png)
 
-[Activity](docs/screenshots/activity.png) · [Sessions](docs/screenshots/sessions.png)
+[Activity](docs/screenshots/activity.png) · [Saved sessions](docs/screenshots/sessions.png)
 — captured from an isolated native test workspace.
 
 ## Features
@@ -13,8 +13,8 @@ A local Linux developer workspace manager built with Go, Wails v3, React and Typ
 - Import projects; review literal commands, editors, environment references and previews.
 - Launch ordered applications/projects with delays, readiness checks and duplicate prevention.
 - Keep managed servers running after the GUI closes; reconnect to bounded logs and stop controls.
-- Save, restore, branch and revise sessions with recoverable history.
-- Configure reviewed fixed, session restore or hybrid login startup.
+- Save, restore, duplicate and update sessions with recoverable version history.
+- Choose a workspace, a saved session or both to open after login.
 - Save and verify a snapshot before gracefully stopping managed services and opening normal GNOME shutdown.
 
 V1 implementation is available. Real logout/login, power-off, X11, assistive-technology
@@ -62,13 +62,18 @@ state; `--stop-controller` disconnects the controller while preserving workers.
 
 ## Daily workflow
 
-1. Start in Workspaces. Add your apps/projects, then launch the workspace from its card.
-   `Ctrl+K` opens quick actions from any screen.
-2. Use Projects to create or import code; use Saved sessions to resume a captured setup.
-3. Approve project startup configuration, then review and launch the workspace.
-4. Use Activity for progress and output. App browsing and diagnostics live in Settings.
-5. Save a named session using the top bar; a name is suggested for you. Restore it or save an independent branch from Sessions.
-6. Review login startup in Settings. Save & Shutdown is available from the top bar.
+The three main sections are **Workspaces**, **Projects** and **Saved sessions**.
+A workspace is a reusable setup; a saved session captures what is open at one point in time.
+
+1. In Workspaces, create a workspace and add apps/projects. Review project startup
+   commands, then click **Launch**. **More** contains launch preferences and other occasional actions.
+2. Use Projects to create, import or launch individual projects. Activity shows running
+   services, output and stop controls.
+3. Use **Save session** in the top bar to capture your current setup. In Saved sessions,
+   click **Restore** to resume it or **Duplicate** to make a copy; **More** contains updates and version history.
+4. Open Settings to choose what starts after login. App library and Diagnostics are under **Tools & help**.
+5. Use **Save & Shutdown** to review and save your session before shutdown. It is available
+   in the top bar and on Saved sessions. `Ctrl+K` opens searchable quick actions from any screen.
 
 Native fixture checks: build with `go build -tags production,mcp -o bin/workspace-manager-smoke .`,
 then run `python3 scripts/native-smoke.py --lifecycle-only` in a graphical session.
