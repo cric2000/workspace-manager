@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceOverview } from '../components/WorkspaceOverview'
 import { Lifecycle } from './Lifecycle'
 import { execute, type Response } from '../services/lifecycle'
 
@@ -10,16 +11,16 @@ const base = { runtime: { busy: false, shutdownState: 'idle', tasks: [], runs: [
 beforeEach(() => { mocked.mockReset(); mocked.mockImplementation(async request => request.action === 'state' ? base : { message: 'Saved' } as never) })
 
 describe('lifecycle pages', () => {
-  it('displays dashboard status without launching tasks', async () => {
-    render(<Lifecycle page="dashboard" />)
-    await screen.findByText('Managed workers')
-    expect(screen.getByRole('button', { name: 'Launch Coding' })).toBeVisible()
+  it('displays home status without launching tasks', async () => {
+    render(<WorkspaceOverview onNavigate={vi.fn()} />)
+    await screen.findByText('Coding workspace')
+    expect(screen.getByRole('button', { name: 'Restore Monday' })).toBeVisible()
     expect(mocked.mock.calls.map(([r]) => r.action)).toEqual(['state'])
   })
   it('saves a named session only on submit', async () => {
     render(<Lifecycle page="sessions" />)
     await screen.findByText('Monday')
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save as New Session' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Save current session' }))
     const dialog = screen.getByRole('dialog')
     fireEvent.change(within(dialog).getByLabelText('Session name'), { target: { value: 'Tuesday' } })
     expect(mocked).toHaveBeenCalledTimes(1)
@@ -29,16 +30,17 @@ describe('lifecycle pages', () => {
   it('branches independently and shows restore warnings', async () => {
     render(<Lifecycle page="sessions" />)
     await screen.findByText('Monday')
-    fireEvent.click(screen.getByText('Inspect snapshot & warnings'))
+    fireEvent.click(screen.getByText('What will be restored?'))
     expect(screen.getByText('Unsaved buffers are not captured.')).toBeVisible()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save as New Session' })[1])
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }))
     fireEvent.change(screen.getByLabelText('Session name'), { target: { value: 'Branch' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save session' }))
     await waitFor(() => expect(mocked).toHaveBeenCalledWith(expect.objectContaining({ action: 'branch', id: 'session', name: 'Branch', save: false })))
   })
   it('requires confirmation before deleting a snapshot', async () => {
     render(<Lifecycle page="sessions" />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete…' }))
+    fireEvent.click(await screen.findByText('More'))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete…' }))
     expect(mocked).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(mocked).toHaveBeenCalledTimes(1)
@@ -69,7 +71,7 @@ describe('lifecycle pages', () => {
 
 it('opens global session capture with a suggested name, and saves only after confirmation', async () => {
   const { rerender } = render(<Lifecycle page="sessions" captureRequest={1} />)
-  const dialog = await screen.findByRole('dialog', { name: 'Save as New Session' })
+  const dialog = await screen.findByRole('dialog', { name: 'Save current session' })
   const name = within(dialog).getByLabelText('Session name') as HTMLInputElement
   expect(name.value).toMatch(/^Session · /)
   expect(mocked.mock.calls.map(([r]) => r.action)).toEqual(['state'])
@@ -79,4 +81,23 @@ it('opens global session capture with a suggested name, and saves only after con
   rerender(<Lifecycle page="sessions" captureRequest={2} />)
   fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Save session' }))
   await waitFor(() => expect(mocked).toHaveBeenCalledWith(expect.objectContaining({ action: 'capture', name: expect.stringMatching(/^Session · /) })))
+})
+
+it('restores the latest session from home with one review click', async () => {
+  mocked.mockImplementation(async request => request.action === 'state' ? base : { plan: { token: 'review', kind: 'review_session', name: 'Monday', tasks: [], warnings: [] } } as never)
+  render(<WorkspaceOverview onNavigate={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Restore Monday' }))
+  expect(await screen.findByRole('dialog', { name: 'Review Monday' })).toBeVisible()
+  expect(mocked.mock.calls.map(([request]) => request.action)).toEqual(['state', 'review_session'])
+})
+
+it('opens a global shutdown review without saving, stopping or confirming anything', async () => {
+  mocked.mockImplementation(async request => request.action === 'state' ? base : { plan: { token: 'shutdown-review', kind: 'review_shutdown', name: 'Shutdown', tasks: [], warnings: [] } } as never)
+  const { rerender } = render(<Lifecycle page="sessions" shutdownRequest={1} />)
+  expect(await screen.findByRole('dialog', { name: 'Save & Shutdown' })).toBeVisible()
+  expect(mocked.mock.calls.map(([request]) => request.action)).toEqual(['state', 'review_shutdown'])
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  rerender(<Lifecycle page="sessions" shutdownRequest={1} />)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(mocked.mock.calls.map(([request]) => request.action)).toEqual(['state', 'review_shutdown'])
 })

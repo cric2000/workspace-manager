@@ -5,6 +5,7 @@ import App from '../App'
 import { Workspaces } from './Workspaces'
 import * as api from '../services/workspaces'
 import { getApplicationIcon, listApplications, type DesktopEntry } from '../services/applications'
+import { execute } from '../services/lifecycle'
 import { listProjects } from '../services/projects'
 import { DuplicatePolicy, ProjectSource } from '../../bindings/workspace-manager/internal/domain/models'
 
@@ -28,6 +29,21 @@ describe('workspace profiles', () => {
     vi.mocked(api.listWorkspaces).mockResolvedValue(result(state()))
     vi.mocked(listApplications).mockReset().mockResolvedValue({ entries: [editorApp, browserApp], code: '', message: '' })
     vi.mocked(getApplicationIcon).mockReset().mockResolvedValue('')
+  })
+
+  it('refreshes the workspace revision after saving launch preferences', async () => {
+    const user = userEvent.setup(), updated = { ...coding, revision: 'c'.repeat(64) }
+    vi.mocked(api.listWorkspaces).mockResolvedValueOnce(result(state())).mockResolvedValueOnce(result(state([updated])))
+    vi.mocked(api.editWorkspace).mockResolvedValue(result(state([updated]), true))
+    vi.mocked(execute).mockResolvedValueOnce({ workspaces: [{ ...coding, projectIds: [] }], workspaceRevisions: { [coding.id]: coding.revision } } as never).mockResolvedValueOnce({ message: 'Launch preferences saved.' } as never)
+    render(<Workspaces />)
+    await user.click(within(await screen.findByRole('article', { name: 'Coding' })).getByText('More'))
+    await user.click(screen.getByRole('button', { name: 'Launch preferences' }))
+    await user.click(await screen.findByRole('button', { name: 'Save launch preferences' }))
+    await screen.findByText('Launch preferences saved.')
+    await user.click(screen.getByRole('button', { name: 'Edit Coding' }))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(api.editWorkspace).toHaveBeenCalledWith({ id: coding.id, revision: updated.revision }, expect.anything())
   })
 
   it('saves workspace project choices with both workspace and project revisions', async () => {
@@ -84,13 +100,15 @@ describe('workspace profiles', () => {
     vi.mocked(api.duplicateWorkspace).mockResolvedValue(result(state([coding, copy]), true))
     vi.mocked(api.setDefaultWorkspace).mockResolvedValueOnce(result(state([coding, copy], copy.id), true)).mockResolvedValueOnce(result(state([coding, copy]), true))
     render(<Workspaces />)
-    await user.click(await screen.findByRole('button', { name: 'Duplicate Coding' }))
+    await user.click(within(await screen.findByRole('article', { name: 'Coding' })).getByText('More'))
+    await user.click(screen.getByRole('button', { name: 'Duplicate Coding' }))
     expect(screen.getByRole('dialog')).toHaveTextContent('project directories are not copied')
     await user.clear(screen.getByLabelText('Name'))
     await user.type(screen.getByLabelText('Name'), 'Learning')
     await user.click(screen.getByRole('button', { name: 'Create duplicate' }))
     expect(api.duplicateWorkspace).toHaveBeenCalledWith({ id: coding.id, revision: coding.revision }, { name: 'Learning', description: 'API work' })
-    await user.click(await screen.findByRole('button', { name: 'Set Learning as default' }))
+    await user.click(within(await screen.findByRole('article', { name: 'Learning' })).getByText('More'))
+    await user.click(screen.getByRole('button', { name: 'Set Learning as default' }))
     expect(api.setDefaultWorkspace).toHaveBeenLastCalledWith({ id: copy.id, revision: copy.revision }, 'b'.repeat(64))
     await user.click(await screen.findByRole('button', { name: 'Clear default' }))
     expect(api.setDefaultWorkspace).toHaveBeenLastCalledWith({ id: '', revision: '' }, 'b'.repeat(64))
@@ -101,10 +119,12 @@ describe('workspace profiles', () => {
     const user = userEvent.setup()
     vi.mocked(api.deleteWorkspace).mockResolvedValue(result(state([]), true))
     render(<Workspaces />)
-    await user.click(await screen.findByRole('button', { name: 'Delete Coding' }))
+    await user.click(within(await screen.findByRole('article', { name: 'Coding' })).getByText('More'))
+    await user.click(screen.getByRole('button', { name: 'Delete Coding' }))
     expect(screen.getByRole('dialog')).toHaveTextContent('Project directories and their files will be kept')
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(api.deleteWorkspace).not.toHaveBeenCalled()
+    await user.click(screen.getByText('More'))
     await user.click(screen.getByRole('button', { name: 'Delete Coding' }))
     await user.click(screen.getByRole('button', { name: 'Delete workspace' }))
     expect(api.deleteWorkspace).toHaveBeenCalledExactlyOnceWith({ id: coding.id, revision: coding.revision })
@@ -188,6 +208,7 @@ describe('workspace profiles', () => {
     const initial = document.documentElement.dataset.theme
     await user.click(screen.getByRole('button', { name: /Use (light|dark) theme/ }))
     expect(document.documentElement.dataset.theme).toBe(initial === 'dark' ? 'light' : 'dark')
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
     await user.click(screen.getByRole('button', { name: 'Diagnostics' }))
     expect(await screen.findByText('Desktop bridge connected')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Workspaces' }))
@@ -297,21 +318,21 @@ describe('workspace profiles', () => {
     await user.click(screen.getByRole('button', { name: 'Remove Example Editor' }))
     await user.click(screen.getByRole('button', { name: 'Save applications' }))
     expect(api.setWorkspaceApplications).toHaveBeenCalledTimes(2)
-    expect(await screen.findByText('Apps (0)')).toBeInTheDocument()
+    expect(await screen.findByText('Add apps')).toBeInTheDocument()
   })
 })
 
-it('opens workspace creation from the global action without an extra page click', async () => {
+it('opens workspace creation directly from the home page', async () => {
   const user = userEvent.setup()
   vi.mocked(api.listWorkspaces).mockResolvedValue(result(state()))
   render(<App />)
-  await user.click(screen.getByRole('button', { name: 'Create workspace' }))
+  await user.click(screen.getByRole('button', { name: 'New workspace' }))
   const dialog = await screen.findByRole('dialog', { name: 'New workspace' })
   expect(within(dialog).getByLabelText('Name')).toHaveFocus()
   await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
   await user.click(screen.getByRole('button', { name: /Use (light|dark) theme/ }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  await user.click(screen.getByRole('button', { name: 'Create workspace' }))
+  await user.click(screen.getByRole('button', { name: 'New workspace' }))
   expect(await screen.findByRole('dialog', { name: 'New workspace' })).toBeVisible()
   expect(api.createWorkspace).not.toHaveBeenCalled()
 })

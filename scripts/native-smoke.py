@@ -150,6 +150,15 @@ class Native:
     def click(self, selector):
         self.tool("mouse_click", selector=selector)
 
+    def navigate(self, page):
+        if page in ['applications', 'diagnostics']:
+            self.click('[data-page=settings]')
+            self.until("document.querySelector('[data-page=" + page + "]')")
+        self.click('[data-page=' + page + ']')
+
+    def more(self, name):
+        self.click('summary[aria-label=' + json.dumps('More actions for ' + name) + ']')
+
     def fill(self, selector, text):
         # Set a complete controlled-field value atomically. Selection plus a
         # later RPC can lose the selection to native focus changes. Real OS key
@@ -309,19 +318,23 @@ def main():
             app.click('dialog .dialog-actions .primary-button')
             app.until("!document.querySelector('dialog')")
             app.until("document.querySelector('article[aria-label=\"Backend\"]').textContent.includes('Apps (2)')")
+            app.more('Backend')
             app.click('button[aria-label="Duplicate Backend"]')
             app.until("document.querySelector('#workspace-name')")
             app.fill("#workspace-name", "Learning")
             app.submit()
             app.until("document.querySelectorAll('article').length === 2")
+            app.more('Backend')
             app.click('button[aria-label="Set Backend as default"]')
-            app.until("document.querySelector('.default-name').textContent === 'Backend'")
+            app.until("document.querySelector('article[aria-label=\"Backend\"] .default-badge')")
+            app.more('Backend')
             app.click('button[aria-label="Delete Backend"]')
             app.until("document.querySelector('dialog')")
             # A synthetic cancel event verifies our handler; OS Escape remains manual.
             app.js("document.querySelector('dialog').dispatchEvent(new Event('cancel', {cancelable:true})); return true;")
             app.until("!document.querySelector('dialog')")
-            assert app.js("return document.activeElement.getAttribute('aria-label');") == "Delete Backend"
+            assert app.js("return document.activeElement.getAttribute('aria-label');") == "More actions for Backend"
+            app.more('Backend')
             app.click('button[aria-label="Delete Backend"]')
             app.until("document.querySelector('dialog')")
             app.click('dialog button[type="submit"]')
@@ -332,7 +345,7 @@ def main():
             old_theme = app.js("return document.documentElement.dataset.theme;")
             app.click('button[aria-label*="theme"]')
             app.until("document.documentElement.dataset.theme !== " + json.dumps(old_theme))
-            app.click('nav button[data-page="applications"]')
+            app.navigate('applications')
             app.until("document.querySelector('.application-list')")
             app.fill('input[aria-label="Search installed applications"]', 'Workspace Smoke')
             app.until("document.querySelectorAll('.application-choice').length === 2")
@@ -386,12 +399,12 @@ def main():
             refresh_until("document.querySelectorAll('.application-choice').length === 2 && !document.querySelector('.application-details').textContent.includes('" + editor_id + "')")
             print("PASS: native catalogue search, selection, local/themed PNG icons and live add/remove refresh; only the test-owned helper was launched.")
 
-            app.click('nav button[data-page="diagnostics"]')
+            app.navigate('diagnostics')
             app.until("document.body.innerText.includes('Desktop bridge connected')")
             assert "wayland" in app.js("return document.body.innerText;")
             app.click(".environment-panel .secondary-button")
             app.until("document.body.innerText.includes('Desktop bridge connected')")
-            app.click('nav button[data-page="workspaces"]')
+            app.navigate('workspaces')
             app.until("document.querySelector('article[aria-label=\"Backend\"]')")
             app.click('button[aria-label="Configure applications for Backend"]')
             app.until("document.querySelector('dialog')?.matches(':modal')")
@@ -419,7 +432,7 @@ def main():
 
         with Native(temporary) as app:
             app.until("document.querySelectorAll('article').length === 2")
-            assert app.js("return document.querySelector('.default-name').textContent;") == "Backend"
+            assert app.js("return !!document.querySelector('article[aria-label=\"Backend\"] .default-badge');")
             app.click('button[aria-label="Configure applications for Backend"]')
             app.until("document.querySelector('dialog')?.textContent.includes('Unavailable · kept in this workspace')")
             assert app.js("return [...document.querySelectorAll('.selected-applications select')].map(select => select.value);") == ['always_launch', 'skip_if_running']
@@ -431,6 +444,7 @@ def main():
             app.click('dialog .dialog-actions .primary-button')
             app.until("!document.querySelector('dialog')")
             assert app.js("return document.querySelector('article[aria-label=\"Learning\"]').textContent.includes('Apps (1)') && document.querySelector('article[aria-label=\"Backend\"]').textContent.includes('Apps (2)');")
+            app.more('Learning')
             app.click('button[aria-label="Delete Learning"]')
             app.until("document.querySelector('dialog')")
             app.submit()
@@ -453,7 +467,7 @@ def main():
             app.click('dialog > .dialog-actions .primary-button')
             app.until("!document.querySelector('dialog')")
             assert launch_capture.read_text() == 'two words\n'
-            app.click('nav button[data-page="applications"]')
+            app.navigate('applications')
             app.until("document.querySelector('.custom-application-grid article')")
             app.click('.custom-application-grid article .primary-button')
             app.until("document.querySelector('dialog .launch-review')")
@@ -517,7 +531,7 @@ def check_projects(temporary):
     project_tool.chmod(0o700)
     project_records = temporary / 'config/workspace-manager/projects'
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.fill('#project-directory', str(project))
         app.click('.project-path-form .primary-button')
         app.until("document.querySelector('section[aria-label=\"Project inspection results\"]')")
@@ -598,7 +612,7 @@ def check_projects(temporary):
     assert 'never-display-this-inspection-secret' not in records[0].read_text()
     original_record = records[0].read_bytes()
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('article[aria-label=\"Registered project Native API\"]')")
         app.click('.project-library article .secondary-button')
         app.until("document.querySelector('#registration-name')")
@@ -632,7 +646,7 @@ def check_projects(temporary):
     before_rescan = records[0].read_bytes()
     previous = json.loads(before_rescan)['data']
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('.project-rescan-button')")
         app.click('.project-rescan-button')
         app.until("document.querySelector('select[name=\"rescan-candidate\"]')")
@@ -686,6 +700,7 @@ def check_projects(temporary):
         app.click('button[aria-label="Add Native API to workspace"]')
         app.click('dialog .dialog-actions .primary-button')
         app.until("!document.querySelector('dialog')")
+        app.more('Native Project Workspace')
         app.click('button[aria-label="Duplicate Native Project Workspace"]')
         app.until("document.querySelector('#workspace-name')")
         app.fill('#workspace-name', 'Native Project Copy')
@@ -697,7 +712,7 @@ def check_projects(temporary):
     assert len(linked) == 2 and all(item['projectIds'] == [updated['id']] for item in linked)
     assert records[0].read_bytes() == after_save
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('article[aria-label=\"Registered project Native API\"]')")
         app.click('.project-library article .delete-button')
         app.until("document.querySelector('dialog .danger-button')")
@@ -706,7 +721,7 @@ def check_projects(temporary):
         assert app.js("return document.querySelector('dialog [role=alert]').textContent.includes('Native Project Copy') && document.querySelector('dialog .danger-button').disabled;")
         assert records[0].read_bytes() == after_save
         app.click('dialog .dialog-actions .secondary-button')
-        app.click('nav button[data-page="workspaces"]')
+        app.navigate('workspaces')
         for name in ['Native Project Workspace', 'Native Project Copy']:
             selector = 'button[aria-label="Configure projects for ' + name + '"]'
             app.until('document.querySelector(' + json.dumps(selector) + ')')
@@ -715,14 +730,14 @@ def check_projects(temporary):
             app.click('button[aria-label="Remove Native API from workspace"]')
             app.click('dialog .dialog-actions .primary-button')
             app.until("!document.querySelector('dialog')")
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('article[aria-label=\"Registered project Native API\"]')")
         app.click('.project-library article .delete-button')
         app.until("document.querySelector('dialog .danger-button')")
         app.click('dialog .danger-button')
         app.until("!document.querySelector('dialog') && !document.querySelector('article[aria-label=\"Registered project Native API\"]')")
         assert not records[0].exists()
-        app.click('nav button[data-page="workspaces"]')
+        app.navigate('workspaces')
         app.until("document.querySelector('button[aria-label=\"Configure projects for Native Project Workspace\"]')")
         app.click('button[aria-label="Configure projects for Native Project Workspace"]')
         app.until("document.querySelector('dialog .picker-empty')")
@@ -746,7 +761,7 @@ def check_creation(temporary):
     records = temporary / 'config/workspace-manager/projects'
     before_records = {path.name: path.read_bytes() for path in records.glob('*.json')}
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
         app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option')")
@@ -786,7 +801,7 @@ def check_creation(temporary):
     assert not saved['commands'][0].get('approval')
     source = {path.name: path.read_bytes() for path in target.iterdir()}
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('article[aria-label=\"Registered project hello-go\"]')")
         app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
         app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option')")
@@ -823,7 +838,7 @@ def check_node_creation(temporary):
         app.fill('#creation-parent', str(parent))
 
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         options(app, 'Uppercase_Node')
         app.click('dialog button[type=submit]')
@@ -861,7 +876,7 @@ def check_node_creation(temporary):
     assert package['private'] and package['scripts']['dev'] == 'node --watch src/index.ts'
     assert package['devDependencies']['typescript'] == '7.0.2'
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('article[aria-label=\"Registered project hello-node\"]')")
         app.click('article[aria-label="Registered project hello-node"] .secondary-button')
         app.until("document.querySelector('#registration-name')")
@@ -902,7 +917,7 @@ def check_python_creation(temporary):
         app.fill('#creation-parent', str(parent))
 
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         options(app, 'trailing-')
         app.click('dialog button[type=submit]')
@@ -939,7 +954,7 @@ def check_python_creation(temporary):
     assert b'requires-python = ">=3.11"' in source['pyproject.toml']
     assert b'python3 -m venv .venv' in source['README.md']
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('article[aria-label=\"Registered project hello-python\"]')")
         app.click('article[aria-label="Registered project hello-python"] .secondary-button')
         app.until("document.querySelector('#registration-name')")
@@ -981,7 +996,7 @@ def check_fastapi_creation(temporary):
         app.fill('#creation-parent', str(parent))
 
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         options(app, 'hello-api')
         app.click('dialog button[type=submit]')
@@ -1022,7 +1037,7 @@ def check_fastapi_creation(temporary):
     # makes the interpreter reviewable; no server or generated source is run.
     subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(target / '.venv')], check=True, timeout=20)
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('article[aria-label=\"Registered project hello-api\"]')")
         app.click('article[aria-label="Registered project hello-api"] .secondary-button')
         app.until("document.querySelector('#registration-name')")
@@ -1057,7 +1072,7 @@ def check_next_creation(temporary):
     records = temporary / 'config/workspace-manager/projects'
     before_records = {path.name: path.read_bytes() for path in records.glob('*.json')}
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         app.js("[...document.querySelectorAll('button')].find(button => button.textContent === 'New project').click(); return true;")
         app.until("document.querySelector('#creation-name')?.matches(':enabled') && document.querySelector('#creation-template option[value=\"nextjs\"]')")
@@ -1108,7 +1123,7 @@ def check_next_creation(temporary):
     history_before = {path:path.read_bytes() for path in history_dir.glob('*.json')}
     source = {str(path.relative_to(target)):path.read_bytes() for path in target.rglob('*') if path.is_file()}
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('article[aria-label=\"Registered project hello-next\"]')")
         app.js("[...document.querySelectorAll('button')].find(button=>button.textContent === 'Creation history').click(); return true;")
         app.until("document.querySelector('[aria-label=\"hello-next preparation history\"]')")
@@ -1155,7 +1170,7 @@ def check_setup(temporary):
         app.js("[...document.querySelectorAll('dialog button')].find(button=>button.textContent === " + json.dumps(text) + ").click(); return true;")
 
     def create(app, template, name):
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         app.js("[...document.querySelectorAll('button')].find(button=>button.textContent === 'New project').click(); return true;")
         app.until("document.querySelector('#creation-name')?.matches(':enabled')")
@@ -1229,7 +1244,7 @@ def check_setup(temporary):
     history_before = {path:path.read_bytes() for path in node_logs.glob('*.json')}
     python = parent / 'setup-python'
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         app.js("[...document.querySelectorAll('button')].find(button=>button.textContent === 'Setup history setup-node').click(); return true;")
         app.until("document.querySelector('[aria-label=\"Initialize Git history\"]')")
@@ -1266,7 +1281,7 @@ def check_recovery(temporary):
     def button(app, text, region='dialog'):
         app.js("[...document.querySelectorAll(" + json.dumps(region + ' button') + ")].find(button=>button.textContent === " + json.dumps(text) + ").click();return true;")
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         button(app,'New project','body')
         app.until("document.querySelector('#creation-name')?.matches(':enabled')")
@@ -1296,7 +1311,7 @@ def check_recovery(temporary):
     history_before = log_file.read_bytes()
     region = '[aria-label="recovery-go publication history"]'
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         button(app,'Creation history','body')
         app.until("document.querySelector('" + region + "')")
@@ -1331,7 +1346,7 @@ def check_recovery(temporary):
     edited = (target / 'main.go').read_bytes() + b'\n// edited test fixture\n'
     (target / 'main.go').write_bytes(edited)
     with Native(temporary) as app:
-        app.click('nav button[data-page="projects"]')
+        app.navigate('projects')
         app.until("document.querySelector('h1#projects-title')")
         button(app,'Creation history','body')
         app.until("document.querySelector('" + region + "')")
@@ -1407,11 +1422,17 @@ def check_login(temporary):
 
 def check_ui(temporary):
     with Native(temporary) as app:
-        app.click('[data-page=dashboard]')
-        app.until("document.querySelector('.runtime-overview')")
+        app.navigate('workspaces')
+        app.until("document.querySelector('.workspace-overview')")
         app.until("document.querySelector('.app-brand img').complete && document.querySelector('.app-brand img').naturalWidth > 0")
         app.assert_layout()
-        app.click('[aria-label="Create workspace"]')
+        assert app.js("return document.querySelectorAll('nav[aria-label=\"Main navigation\"] button').length;") == 3
+        app.click('[aria-label=\"Save & Shutdown\"]')
+        app.until("document.querySelector('dialog')?.textContent.includes('Confirm Save & Shutdown')")
+        app.click('dialog .dialog-actions .secondary-button')
+        app.until("!document.querySelector('dialog')")
+        app.navigate('workspaces')
+        app.click('[data-new-workspace]')
         app.until("document.querySelector('dialog')?.textContent.includes('New workspace')")
         app.until("document.activeElement?.id === 'workspace-name'")
         app.click('dialog [aria-label="Close dialog"]')
@@ -1430,30 +1451,31 @@ def check_ui(temporary):
         app.submit()
         app.until("!document.querySelector('dialog')")
         assert len(controller_rpc(temporary, {'action': 'state'})['sessions']) == 1
-        for page in ['dashboard', 'workspaces', 'projects', 'applications', 'sessions', 'activity', 'settings', 'diagnostics']:
-            app.click('[data-page=' + page + ']')
+        for page in ['workspaces', 'projects', 'sessions', 'activity', 'settings', 'applications', 'diagnostics']:
+            app.navigate(page)
             app.until("document.querySelector('main h1')")
             app.assert_layout()
-        app.click('[data-page=dashboard]')
-        app.until("document.querySelector('.runtime-overview')")
+        app.navigate('workspaces')
+        app.until("document.querySelector('.workspace-overview')")
         app.js("localStorage.setItem('workspace-manager-appearance', 'light'); window.dispatchEvent(new Event('workspace-manager-appearance')); return true;")
         app.until("document.documentElement.dataset.theme === 'light'")
         app.assert_layout()
         encoded = app.tool('call_bound_method', name='main.ScreenshotService.Capture', args=[])
         Path('/tmp/workspace-manager-light.png').write_bytes(base64.b64decode(encoded))
         app.narrow_viewport()
-        for page in ['dashboard', 'workspaces', 'projects', 'applications', 'sessions', 'activity', 'settings', 'diagnostics']:
-            app.click('[data-page=' + page + ']')
+        for page in ['workspaces', 'projects', 'sessions', 'activity', 'settings', 'applications', 'diagnostics']:
+            app.navigate(page)
             app.until("document.querySelector('main h1')")
             app.assert_layout()
-        app.click('[aria-label="Create workspace"]')
+        app.navigate('workspaces')
+        app.click('[data-new-workspace]')
         app.until("document.querySelector('dialog')?.textContent.includes('New workspace')")
         app.assert_layout()
         encoded = app.tool('call_bound_method', name='main.ScreenshotService.Capture', args=[])
         Path('/tmp/workspace-manager-narrow.png').write_bytes(base64.b64decode(encoded))
         app.click('dialog [aria-label="Close dialog"]')
         app.close()
-    print('PASS: native global creation, palette search/focus, suggested session capture with explicit save, all eight pages and narrow layouts, light theme and app icon.')
+    print('PASS: native global creation, palette search/focus, suggested session capture with explicit save, three primary destinations, supporting tools and narrow layouts, light theme and app icon.')
 
 
 def check_lifecycle(temporary):
@@ -1491,7 +1513,7 @@ def check_lifecycle(temporary):
     run_id = None
     try:
         with Native(temporary) as app:
-            app.click('[data-page=dashboard]')
+            app.navigate('projects')
             app.until("document.querySelector('[data-launch-id=\"" + project_id + "\"]')")
             app.click('[data-launch-id="' + project_id + '"]')
             app.until("document.querySelector('dialog')?.textContent.includes('Owned server')")
@@ -1499,16 +1521,16 @@ def check_lifecycle(temporary):
             assert not list((temporary / 'state/workspace-manager/runtime/runs').glob('*.json'))
             app.click('dialog .dialog-actions .primary-button')
             app.until("!document.querySelector('dialog')")
-            app.click('[data-page=activity]')
+            app.navigate('activity')
             app.until("document.querySelector('.runtime-run .task-state')?.textContent === 'ready'", timeout=20)
             app.until("document.querySelector('.runtime-run > .runtime-output')?.textContent.includes('owned-worker-ready')")
-            app.click('[data-page=dashboard]')
+            app.navigate('workspaces')
             app.until("document.querySelector('[data-launch-id=\"" + workspace_id + "\"]')")
             app.click('[data-launch-id="' + workspace_id + '"]')
             app.until("document.querySelector('dialog')?.textContent.includes('Review Coding')")
             app.click('dialog .dialog-actions .primary-button')
             app.until("!document.querySelector('dialog')")
-            app.click('[data-page=activity]')
+            app.navigate('activity')
             app.until("document.querySelector('.runtime-run .task-state')?.textContent === 'ready'")
             app.assert_layout()
             app.screenshot('activity')
@@ -1536,13 +1558,19 @@ def check_lifecycle(temporary):
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/health') as response:
             assert response.read() == b'owned-fixture'
         with Native(temporary) as app:
-            app.click('[data-page=activity]')
+            app.navigate('activity')
             app.until("document.querySelector('.runtime-run .task-state')?.textContent === 'ready'", timeout=20)
             assert len(controller_rpc(temporary, {'action': 'state'})['runtime']['runs']) == 1
-            app.click('[data-page=dashboard]')
+            app.navigate('workspaces')
             app.until("document.querySelector('[data-launch-id]')")
+            app.more('Coding')
+            app.js("[...document.querySelectorAll('details[open] button')].find(button => button.textContent === 'Launch preferences').click(); return true;")
+            app.until("document.querySelector('dialog')?.textContent.includes('Browser URLs')")
+            app.assert_layout()
+            app.click('dialog [aria-label=\"Close dialog\"]')
+            app.until("!document.querySelector('dialog')")
             app.screenshot('dashboard')
-            app.click('[data-page=sessions]')
+            app.navigate('sessions')
             app.until("document.querySelector('.runtime-actions .primary-button')")
             app.click('.runtime-actions .primary-button')
             app.until("document.querySelector('dialog input')")
@@ -1555,7 +1583,7 @@ def check_lifecycle(temporary):
             branch = controller_rpc(temporary, {'action': 'branch', 'id': first['value']['id'], 'name': 'Independent branch'})
             assert branch['session']['value']['parentSessionId'] == first['value']['id']
             assert len(controller_rpc(temporary, {'action': 'state'})['sessions']) == 2
-            app.click('[data-page=dashboard]')
+            app.navigate('sessions')
             app.until("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Save & Shutdown'))")
             app.js("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Save & Shutdown')).click(); return true;")
             app.until("document.querySelector('dialog')?.textContent.includes('Confirm Save & Shutdown')")
@@ -1563,7 +1591,7 @@ def check_lifecycle(temporary):
             app.click('dialog .dialog-actions .secondary-button')
             app.until("!document.querySelector('dialog')")
             assert controller_rpc(temporary, {'action': 'state'})['runtime']['shutdownState'] == 'idle'
-            app.click('[data-page=activity]')
+            app.navigate('activity')
             app.until("document.querySelector('.runtime-run')")
             app.click('.runtime-run .runtime-actions .secondary-button')
             app.until("document.querySelector('.runtime-run .task-state')?.textContent === 'stopped'", timeout=15)

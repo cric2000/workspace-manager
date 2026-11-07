@@ -2,7 +2,7 @@
 
 A local Linux developer workspace manager built with Go, Wails v3, React and TypeScript.
 
-![Native dashboard](docs/screenshots/dashboard.png)
+![Workspace home](docs/screenshots/dashboard.png)
 
 [Activity](docs/screenshots/activity.png) · [Sessions](docs/screenshots/sessions.png)
 — captured from an isolated native test workspace.
@@ -62,12 +62,13 @@ state; `--stop-controller` disconnects the controller while preserving workers.
 
 ## Daily workflow
 
-1. Use the top bar to create a workspace or project from any screen. `Ctrl+K` opens quick actions.
-2. Add applications/projects to your workspace.
+1. Start in Workspaces. Add your apps/projects, then launch the workspace from its card.
+   `Ctrl+K` opens quick actions from any screen.
+2. Use Projects to create or import code; use Saved sessions to resume a captured setup.
 3. Approve project startup configuration, then review and launch the workspace.
-4. Inspect readiness and output in Activity; open a configured preview after readiness.
+4. Use Activity for progress and output. App browsing and diagnostics live in Settings.
 5. Save a named session using the top bar; a name is suggested for you. Restore it or save an independent branch from Sessions.
-6. Review login startup in Settings, or review Save & Shutdown from Dashboard.
+6. Review login startup in Settings. Save & Shutdown is available from the top bar.
 
 Native fixture checks: build with `go build -tags production,mcp -o bin/workspace-manager-smoke .`,
 then run `python3 scripts/native-smoke.py --lifecycle-only` in a graphical session.

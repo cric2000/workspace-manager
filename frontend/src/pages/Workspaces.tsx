@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppWindow, Copy, Folder, Layers3, Pencil, Plus, RefreshCw, Search, Star, Trash2 } from 'lucide-react'
+import { ActionMenu } from '../components/ActionMenu'
+import { WorkspaceLaunchPreferences } from '../components/WorkspaceLaunchPreferences'
 import { Modal } from '../components/Modal'
 import { WorkspaceProjects } from '../components/WorkspaceProjects'
 import { WorkspaceApplications } from '../components/WorkspaceApplications'
@@ -11,7 +13,7 @@ type Editor = ProfileEditor | { kind: 'applications'; workspace: View } | { kind
 type Fault = { message: string; reconcile: boolean }
 const target = (workspace: View) => ({ id: workspace.id, revision: workspace.revision })
 
-export function Workspaces({ createRequest = 0 }: { createRequest?: number }) {
+export function Workspaces({ createRequest = 0, overview }: { createRequest?: number; overview?: ReactNode }) {
   const [state, setState] = useState<State | null>(null)
   const [pending, setPending] = useState(true)
   const [fault, setFault] = useState<Fault | null>(null)
@@ -19,6 +21,7 @@ export function Workspaces({ createRequest = 0 }: { createRequest?: number }) {
   const [editor, setEditor] = useState<Editor | null>(null)
   const [blockedDraft, setBlockedDraft] = useState(false)
   const [needsReload, setNeedsReload] = useState(false)
+  const [preferences, setPreferences] = useState<{ id: string; name: string } | null>(null)
   const [query, setQuery] = useState('')
   const handledCreate = useRef(0)
   const busy = useRef(false)
@@ -105,14 +108,15 @@ export function Workspaces({ createRequest = 0 }: { createRequest?: number }) {
 
   return <>
     <section className="workspace-heading" aria-labelledby="workspaces-title">
-      <div><p className="eyebrow">YOUR REUSABLE ENVIRONMENTS</p><h1 id="workspaces-title">Workspaces</h1><p className="muted">Give each kind of work a place of its own.</p></div>
+      <div><p className="eyebrow">YOUR REUSABLE ENVIRONMENTS</p><h1 id="workspaces-title">Workspaces</h1><p className="muted">Open your apps and projects together. Choose a workspace below to get started.</p></div>
       <button data-new-workspace className="primary-button" disabled={disabled} onClick={() => openEditor({ kind: 'create' })}><Plus size={17} aria-hidden="true" />New workspace</button>
     </section>
-    <section className="default-summary" aria-label="Default workspace">
+    {overview || <section className="default-summary" aria-label="Default workspace">
       <span className="summary-icon"><Star size={19} aria-hidden="true" /></span>
       <div><p className="eyebrow">DEFAULT WORKSPACE</p><p className="default-name">{state ? state.defaultMissing ? 'Saved default is unavailable' : defaultWorkspace?.name || 'No default selected' : 'Loading your preferences…'}</p><p className="muted text-xs">{state?.defaultMissing ? 'Clear this reference or choose an existing workspace.' : 'A saved preference for future startup. Login startup is not enabled by this action.'}</p></div>
       {state?.defaultWorkspaceId && <button className="secondary-button" disabled={disabled} onClick={() => { void run(() => setDefaultWorkspace({ id: '', revision: '' }, state.settingsRevision), 'Default cleared.') }}>Clear default</button>}
-    </section>
+    </section>}
+    {overview && state?.defaultMissing && <div className="error-panel" role="alert">Your default workspace is unavailable. Choose another workspace from More → Use as default, or <button className="text-button" disabled={disabled} onClick={() => { void run(() => setDefaultWorkspace({ id: '', revision: '' }, state.settingsRevision), 'Default cleared.') }}>clear the saved default</button>.</div>}
     {!editor && errorPanel}
     <p role="status" className="operation-status" aria-live="polite">{pending ? state ? 'Updating workspaces…' : 'Loading workspaces…' : notice}</p>
     {state && <>
@@ -121,24 +125,29 @@ export function Workspaces({ createRequest = 0 }: { createRequest?: number }) {
         <div className="flex items-center gap-3"><label className="search-field"><Search size={15} aria-hidden="true" /><input type="search" aria-label="Search workspaces" placeholder="Find a workspace…" value={query} onChange={event => setQuery(event.target.value)} /></label><button className="icon-button" aria-label="Reload workspaces" title="Reload workspaces" disabled={pending} onClick={reload}><RefreshCw size={16} aria-hidden="true" /></button></div>
       </div>
       {filtered.length ? <div className="workspace-grid" aria-busy={pending}>
-        {filtered.map(workspace => <article className="workspace-card" key={workspace.id} aria-label={workspace.name}>
+        {[...filtered].sort((a, b) => Number(b.id === state.defaultWorkspaceId) - Number(a.id === state.defaultWorkspaceId)).map(workspace => <article className="workspace-card" key={workspace.id} aria-label={workspace.name}>
           <div className="card-top"><span className="workspace-icon"><Layers3 size={21} aria-hidden="true" /></span>{workspace.id === state.defaultWorkspaceId && <span className="default-badge"><Star size={11} aria-hidden="true" />Default</span>}</div>
-          <h2>{workspace.name}</h2><p className={`workspace-description ${workspace.description ? '' : 'muted'}`}>{workspace.description || 'Add a description to make this workspace your own.'}</p>
+          <h2>{workspace.name}</h2><p className={`workspace-description ${workspace.description ? '' : 'muted'}`}>{workspace.description || (workspace.applications?.length || workspace.projectCount ? 'Your apps and projects, ready to launch together.' : 'Add apps or projects below, then launch your workspace.')}</p>
           <div className="workspace-meta"><span><Folder size={14} aria-hidden="true" />{workspace.projectCount} project {workspace.projectCount === 1 ? 'reference' : 'references'}</span><span>Edited {new Date(workspace.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
           <div className="card-actions">
             <LaunchControl kind="workspace" id={workspace.id} name={workspace.name} />
             <button className="secondary-button" aria-label={`Edit ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'edit', workspace })}><Pencil size={13} aria-hidden="true" />Edit</button>
-            <button className="secondary-button" aria-label={`Configure applications for ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'applications', workspace })}><AppWindow size={13} aria-hidden="true" />Apps ({workspace.applications?.length ?? 0})</button>
-            <button className="secondary-button" aria-label={`Configure projects for ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'projects', workspace })}><Folder size={13} aria-hidden="true" />Projects ({workspace.projectCount})</button>
-            <button className="icon-button" aria-label={`Duplicate ${workspace.name}`} title="Duplicate workspace" disabled={disabled} onClick={() => openEditor({ kind: 'duplicate', workspace })}><Copy size={15} aria-hidden="true" /></button>
-            {workspace.id !== state.defaultWorkspaceId && <button className="icon-button" aria-label={`Set ${workspace.name} as default`} title="Set as default" disabled={disabled} onClick={() => { void run(() => setDefaultWorkspace(target(workspace), state.settingsRevision), 'Default workspace updated.') }}><Star size={15} aria-hidden="true" /></button>}
-            <button className="icon-button delete-button" aria-label={`Delete ${workspace.name}`} title="Delete workspace" disabled={disabled} onClick={() => openEditor({ kind: 'delete', workspace })}><Trash2 size={15} aria-hidden="true" /></button>
+            <button className="secondary-button" aria-label={`Configure applications for ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'applications', workspace })}><AppWindow size={13} aria-hidden="true" />{workspace.applications?.length ? `Apps (${workspace.applications.length})` : 'Add apps'}</button>
+            <button className="secondary-button" aria-label={`Configure projects for ${workspace.name}`} disabled={disabled} onClick={() => openEditor({ kind: 'projects', workspace })}><Folder size={13} aria-hidden="true" />{workspace.projectCount ? `Projects (${workspace.projectCount})` : 'Add projects'}</button>
+            <ActionMenu name={workspace.name}>
+            <button className="secondary-button" aria-label={`Duplicate ${workspace.name}`} title="Duplicate workspace" disabled={disabled} onClick={() => openEditor({ kind: 'duplicate', workspace })}><Copy size={15} aria-hidden="true" />Duplicate</button>
+            {workspace.id !== state.defaultWorkspaceId && <button className="secondary-button" aria-label={`Set ${workspace.name} as default`} title="Set as default" disabled={disabled} onClick={() => { void run(() => setDefaultWorkspace(target(workspace), state.settingsRevision), 'Default workspace updated.') }}><Star size={15} aria-hidden="true" />Use as default</button>}
+            <button className="secondary-button delete-button" aria-label={`Delete ${workspace.name}`} title="Delete workspace" disabled={disabled} onClick={() => openEditor({ kind: 'delete', workspace })}><Trash2 size={15} aria-hidden="true" />Delete workspace</button>
+              <button className="secondary-button" disabled={disabled} onClick={() => setPreferences({ id: workspace.id, name: workspace.name })}>Launch preferences</button>
+              {overview && workspace.id === state.defaultWorkspaceId && <button className="secondary-button" disabled={disabled} onClick={() => { void run(() => setDefaultWorkspace({ id: '', revision: '' }, state.settingsRevision), 'Default cleared.') }}>Clear default</button>}
+            </ActionMenu>
           </div>
         </article>)}
-      </div> : <div className="empty-workspaces panel"><span className="workspace-icon"><Layers3 size={27} aria-hidden="true" /></span><h2>{query ? 'No matching workspaces' : 'Start with a space for your work'}</h2><p className="muted">{query ? 'Try another name or description.' : 'Create a profile for coding, learning or your next idea.'}</p>{!query && <button className="secondary-button" disabled={disabled} onClick={() => openEditor({ kind: 'create' })}><Plus size={15} aria-hidden="true" />Create your first workspace</button>}</div>}
+      </div> : <div className="empty-workspaces panel"><span className="workspace-icon"><Layers3 size={27} aria-hidden="true" /></span><h2>{query ? 'No matching workspaces' : 'Start with a space for your work'}</h2><p className="muted">{query ? 'Try another name or description.' : 'Create a workspace, add your apps or projects, then launch them together.'}</p>{!query && !overview && <button className="secondary-button" disabled={disabled} onClick={() => openEditor({ kind: 'create' })}><Plus size={15} aria-hidden="true" />Create your first workspace</button>}</div>}
     </>}
     {!state && !pending && <button className="secondary-button" onClick={reload}>Retry loading</button>}
-    <aside className="scope-note"><h2>A reusable setup for your work.</h2><p>Arrange applications and projects here. Launch reviews show exact commands and skip unavailable or unapproved tasks. Configure URLs, editor and delays from Dashboard; inspect managed workers in Activity.</p></aside>
+    <details className="scope-note workspace-help"><summary>How workspaces work</summary><p>Arrange applications and projects here. Launch reviews show exact commands and skip unavailable or unapproved tasks. Use More → Launch preferences for URLs, editors and delays. Activity shows progress and service output.</p></details>
+    {preferences && <WorkspaceLaunchPreferences id={preferences.id} name={preferences.name} onSaved={message => { void run(listWorkspaces, message, false) }} onClose={() => setPreferences(null)} />}
     {editor?.kind === 'applications' ? <WorkspaceApplications workspace={editor.workspace} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSave={choices => { if (!blockedDraft && !needsReload) void run(() => setWorkspaceApplications(target(editor.workspace), choices), 'Workspace applications saved.') }} /> : editor?.kind === 'projects' ? <WorkspaceProjects workspace={editor.workspace} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSave={choices => { if (!blockedDraft && !needsReload) void run(() => setWorkspaceProjects(target(editor.workspace), choices), 'Workspace projects saved.') }} /> : editor && <WorkspaceEditor key={editor.kind + ('workspace' in editor ? editor.workspace.id : '')} editor={editor} pending={pending} blocked={blockedDraft} error={errorPanel} onClose={() => setEditor(null)} onSubmit={submit} />}
   </>
 }

@@ -79,7 +79,7 @@ export function Applications() {
       </div> : <div className="panel catalogue-empty"><AppWindow size={28} aria-hidden="true" /><h2>No applications found</h2><p>No visible application entries were found for this desktop. Install an application or check your desktop data directories, then refresh.</p></div>}
     </>}
     <SavedCustomApplications />
-    <aside className="scope-note"><h2>Your tools, ready to organize.</h2><p>Review and launch an individual application here. D-Bus identities provide conservative running-instance checks. To save tools in a profile, open Workspaces and choose Apps. Ordered workspace execution remains planned.</p></aside>
+    <aside className="scope-note"><h2>Your tools, ready to organize.</h2><p>Review and launch an individual application here. D-Bus identities provide conservative running-instance checks. To save tools in a profile, open Workspaces and choose Apps. Add apps directly from your workspace using its Apps button.</p></aside>
   </>
 }
 
